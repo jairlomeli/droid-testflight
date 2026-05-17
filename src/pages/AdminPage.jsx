@@ -361,8 +361,12 @@ function ImportSection() {
           border: `1px solid ${result.saved > 0 ? '#34c759' : 'var(--red)'}`,
           borderRadius: 8, padding: '10px 12px', marginTop: 10,
         }}>
-          <p style={{ fontSize: 13, fontWeight: 600, margin: 0, color: result.saved > 0 ? '#34c759' : 'var(--red)' }}>
-            {result.saved > 0 ? `✅ ${result.saved} de ${result.total} builds guardadas en Firestore` : '❌ No se guardó ninguna build'}
+          <p style={{ fontSize: 13, fontWeight: 600, margin: 0, color: result.saved > 0 ? '#34c759' : result.skipped === result.total ? '#ff9f0a' : 'var(--red)' }}>
+            {result.saved > 0
+              ? `✅ ${result.saved} build${result.saved !== 1 ? 's' : ''} guardada${result.saved !== 1 ? 's' : ''}${result.skipped ? `, ${result.skipped} ya existían (ignoradas)` : ''}`
+              : result.skipped === result.total
+              ? `⏭ Todas las builds ya existían — nada nuevo que importar`
+              : '❌ No se guardó ninguna build'}
           </p>
           {result.errors.length > 0 && (
             <ul style={{ margin: '6px 0 0', paddingLeft: 16 }}>

@@ -40,21 +40,24 @@ export const getPlatforms = async () => {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }
 
+// Compara dos strings de versión semántica: "5.0.1" > "4.46.0" > "4.44.2"
+function compareSemverDesc(a, b) {
+  const pa = String(a).split('.').map(Number)
+  const pb = String(b).split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    const diff = (pb[i] ?? 0) - (pa[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
 // ─── VERSIONS ─────────────────────────────────────────────────
 export const getVersionsByPlatform = async (platformId) => {
   const snap = await getDocs(
-    query(
-      collection(db, 'versions'),
-      where('platformId', '==', platformId),
-    )
+    query(collection(db, 'versions'), where('platformId', '==', platformId))
   )
   const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-  // Sort in JS to avoid needing a composite index (platformId + createdAt)
-  return docs.sort((a, b) => {
-    const ta = a.createdAt?.seconds ?? 0
-    const tb = b.createdAt?.seconds ?? 0
-    return tb - ta
-  })
+  return docs.sort((a, b) => compareSemverDesc(a.version, b.version))
 }
 
 // ─── BUILDS ───────────────────────────────────────────────────
@@ -142,10 +145,8 @@ export function parseApkUrl(rawUrl) {
 export async function importBuilds(text, expireDays = 90) {
   // Force token refresh so Firestore rules see the admin claim
   const user = auth.currentUser
-  console.log('[import] currentUser:', user?.email, 'uid:', user?.uid)
   if (user) {
     const tokenResult = await user.getIdTokenResult(true)
-    console.log('[import] claims after refresh:', tokenResult.claims)
     if (!tokenResult.claims.admin) {
       throw new Error('Tu cuenta no tiene permisos de admin. Cierra sesión, vuelve a entrar e intenta de nuevo.')
     }
@@ -153,28 +154,36 @@ export async function importBuilds(text, expireDays = 90) {
     throw new Error('No hay sesión activa.')
   }
 
-  const urls = text.match(/https?:\/\/\S+\.apk/gi) || []
-  console.log('[import] URLs encontradas:', urls?.length)
+  const builds = (text.match(/https?:\/\/\S+\.apk/gi) || [])
+    .map(parseApkUrl).filter(Boolean)
 
-  const builds = urls.map(parseApkUrl).filter(Boolean)
-  console.log('[import] Builds parseadas:', builds.length, builds)
+  // Carga claves existentes para prevenir duplicados en tiempo de importación
+  const existingSnap = await getDocs(collection(db, 'builds'))
+  const existingKeys = new Set(
+    existingSnap.docs.map(d => {
+      const { platformId, version, buildNumber } = d.data()
+      return `${platformId}|${version}|${buildNumber}`
+    })
+  )
 
-  let saved = 0
+  let saved = 0, skipped = 0
   const errors = []
   for (const b of builds) {
+    const key = `${b.platformId}|${b.version}|${b.buildNumber}`
+    if (existingKeys.has(key)) {
+      skipped++
+      continue
+    }
     try {
-      console.log('[import] Guardando:', b.platformId, b.environment, b.variant, b.version, b.buildNumber)
       await addBuild({ ...b, changelog: '', expireDays })
+      existingKeys.add(key) // evita duplicar si el texto tiene la misma URL dos veces
       saved++
-      console.log('[import] ✅ Guardado #', saved)
     } catch (e) {
-      console.error('[import] ❌ Error en build:', b, e)
       errors.push(`${b.environment} ${b.variant} ${b.platformId} #${b.buildNumber}: ${e.message}`)
     }
   }
 
-  console.log('[import] Resultado:', saved, 'guardados,', errors.length, 'errores')
-  return { saved, errors, total: builds.length }
+  return { saved, skipped, errors, total: builds.length }
 }
 
 // ─── ADMIN: DEDUP BUILDS ──────────────────────────────────────
