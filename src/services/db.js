@@ -32,7 +32,7 @@ import {
   collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, serverTimestamp, Timestamp
 } from 'firebase/firestore'
-import { db } from './firebase'
+import { db, auth } from './firebase'
 
 // ─── PLATFORMS ────────────────────────────────────────────────
 export const getPlatforms = async () => {
@@ -134,12 +134,41 @@ export function parseApkUrl(rawUrl) {
 }
 
 export async function importBuilds(text, expireDays = 90) {
-  const urls = text.match(/https?:\/\/\S+\.apk/gi) || []
-  const builds = urls.map(parseApkUrl).filter(Boolean)
-  for (const b of builds) {
-    await addBuild({ ...b, changelog: '', expireDays })
+  // Force token refresh so Firestore rules see the admin claim
+  const user = auth.currentUser
+  console.log('[import] currentUser:', user?.email, 'uid:', user?.uid)
+  if (user) {
+    const tokenResult = await user.getIdTokenResult(true)
+    console.log('[import] claims after refresh:', tokenResult.claims)
+    if (!tokenResult.claims.admin) {
+      throw new Error('Tu cuenta no tiene permisos de admin. Cierra sesión, vuelve a entrar e intenta de nuevo.')
+    }
+  } else {
+    throw new Error('No hay sesión activa.')
   }
-  return builds
+
+  const urls = text.match(/https?:\/\/\S+\.apk/gi) || []
+  console.log('[import] URLs encontradas:', urls?.length)
+
+  const builds = urls.map(parseApkUrl).filter(Boolean)
+  console.log('[import] Builds parseadas:', builds.length, builds)
+
+  let saved = 0
+  const errors = []
+  for (const b of builds) {
+    try {
+      console.log('[import] Guardando:', b.platformId, b.environment, b.variant, b.version, b.buildNumber)
+      await addBuild({ ...b, changelog: '', expireDays })
+      saved++
+      console.log('[import] ✅ Guardado #', saved)
+    } catch (e) {
+      console.error('[import] ❌ Error en build:', b, e)
+      errors.push(`${b.environment} ${b.variant} ${b.platformId} #${b.buildNumber}: ${e.message}`)
+    }
+  }
+
+  console.log('[import] Resultado:', saved, 'guardados,', errors.length, 'errores')
+  return { saved, errors, total: builds.length }
 }
 
 // ─── ADMIN: DEACTIVATE BUILD ──────────────────────────────────

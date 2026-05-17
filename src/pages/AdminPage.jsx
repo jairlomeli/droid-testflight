@@ -235,6 +235,7 @@ function ImportSection() {
   const [preview, setPreview] = useState(null)   // null | []
   const [status,  setStatus]  = useState('idle') // idle | importing | done | error
   const [error,   setError]   = useState('')
+  const [result,  setResult]  = useState(null)   // { saved, errors, total }
 
   const analyze = () => {
     const builds = (text.match(/https?:\/\/\S+\.apk/gi) || [])
@@ -248,12 +249,17 @@ function ImportSection() {
     if (!preview?.length) return
     setStatus('importing')
     setError('')
+    setResult(null)
     try {
-      await importBuilds(text)
+      const res = await importBuilds(text)
+      setResult(res)
       setStatus('done')
-      setText('')
-      setTimeout(() => { setPreview(null); setStatus('idle') }, 4000)
+      if (res.saved > 0) {
+        setText('')
+        setPreview(null)
+      }
     } catch (e) {
+      console.error('[doImport] Error:', e)
       setError(e.message)
       setStatus('idle')
     }
@@ -307,7 +313,31 @@ function ImportSection() {
         </button>
       </div>
 
-      {error && <p style={{ color: 'var(--red)', fontSize: 13, marginTop: 10 }}>{error}</p>}
+      {error && (
+        <div style={{ background: '#ff3b3022', border: '1px solid var(--red)', borderRadius: 8, padding: '10px 12px', marginTop: 10 }}>
+          <p style={{ color: 'var(--red)', fontSize: 13, margin: 0, fontWeight: 600 }}>Error</p>
+          <p style={{ color: 'var(--red)', fontSize: 13, margin: '4px 0 0' }}>{error}</p>
+        </div>
+      )}
+
+      {result && (
+        <div style={{
+          background: result.saved > 0 ? '#34c75922' : '#ff3b3022',
+          border: `1px solid ${result.saved > 0 ? '#34c759' : 'var(--red)'}`,
+          borderRadius: 8, padding: '10px 12px', marginTop: 10,
+        }}>
+          <p style={{ fontSize: 13, fontWeight: 600, margin: 0, color: result.saved > 0 ? '#34c759' : 'var(--red)' }}>
+            {result.saved > 0 ? `✅ ${result.saved} de ${result.total} builds guardadas en Firestore` : '❌ No se guardó ninguna build'}
+          </p>
+          {result.errors.length > 0 && (
+            <ul style={{ margin: '6px 0 0', paddingLeft: 16 }}>
+              {result.errors.map((e, i) => (
+                <li key={i} style={{ color: 'var(--red)', fontSize: 12 }}>{e}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {grouped && Object.keys(grouped).length === 0 && (
         <p style={{ color: 'var(--red)', fontSize: 13, marginTop: 12 }}>
