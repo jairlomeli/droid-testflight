@@ -246,18 +246,41 @@ export const validateInviteToken = async (token) => {
   return { id: snap.docs[0].id, ...data }
 }
 
-export const createInvite = async ({ name, platformId, expiresInDays = 365 }) => {
-  const token = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10)
-  const expiresAt = Timestamp.fromDate(
-    new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
-  )
-  await addDoc(collection(db, 'invites'), {
+// Genera un código corto memorable de 6 caracteres (sin chars ambiguos)
+function genShortCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+export const createInvite = async ({ name, platformId, expiresInDays = null }) => {
+  const token     = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10)
+  const shortCode = genShortCode()
+
+  const data = {
     token,
+    shortCode,
     name,
-    platformId: platformId || null, // null = acceso a todas las plataformas
-    active: true,
-    expiresAt,
-    createdAt: serverTimestamp(),
-  })
-  return token
+    platformId:  platformId || null,
+    active:      true,
+    createdAt:   serverTimestamp(),
+  }
+  // null = sin caducidad (nunca expira)
+  if (expiresInDays != null) {
+    data.expiresAt = Timestamp.fromDate(
+      new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
+    )
+  }
+
+  await addDoc(collection(db, 'invites'), data)
+  return { token, shortCode }
+}
+
+export const validateShortCode = async (code) => {
+  const snap = await getDocs(
+    query(collection(db, 'invites'), where('shortCode', '==', code.toUpperCase().trim()), where('active', '==', true))
+  )
+  if (snap.empty) return null
+  const data = snap.docs[0].data()
+  if (data.expiresAt && data.expiresAt.toDate() < new Date()) return null
+  return { id: snap.docs[0].id, ...data }
 }

@@ -1,6 +1,8 @@
 // src/App.jsx
+import { useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
+import { validateShortCode } from './services/db'
 
 import { PlatformsPage } from './pages/PlatformsPage'
 import { VersionsPage }  from './pages/VersionsPage'
@@ -18,28 +20,87 @@ function AdminRoute() {
   return <AdminPage />
 }
 
-// Verifica que el tester tenga un token válido en sessionStorage
-// Si no tiene, muestra un mensaje. Puedes quitarla si quieres acceso abierto.
+// Verifica que el tester tenga un token válido en sessionStorage.
+// Si no tiene, muestra pantalla de acceso con código corto o link.
 function TesterRoute({ children }) {
   const hasInvite = sessionStorage.getItem('df_invite')
-  if (!hasInvite) {
-    return (
-      <div style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center',
-        justifyContent: 'center', padding: 24, textAlign: 'center',
-      }}>
-        <div>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
-          <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 10 }}>Acceso restringido</h2>
-          <p style={{ color: 'var(--text2)', fontSize: 15, lineHeight: 1.6 }}>
-            Necesitas un link de invitación para acceder.<br/>
-            Contacta al administrador.
-          </p>
-        </div>
-      </div>
-    )
+  const [code,     setCode]     = useState('')
+  const [error,    setError]    = useState('')
+  const [checking, setChecking] = useState(false)
+
+  if (hasInvite) return children
+
+  const handleCode = async () => {
+    if (!code.trim()) return
+    setChecking(true)
+    setError('')
+    try {
+      const invite = await validateShortCode(code.trim())
+      if (invite) {
+        sessionStorage.setItem('df_invite', invite.token || code.trim())
+        sessionStorage.setItem('df_invite_name', invite.name || '')
+        window.location.reload()
+      } else {
+        setError('Código inválido o expirado.')
+      }
+    } catch {
+      setError('Error al verificar. Intenta de nuevo.')
+    } finally {
+      setChecking(false)
+    }
   }
-  return children
+
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', padding: 24, textAlign: 'center',
+    }}>
+      <div style={{ maxWidth: 320, width: '100%' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+        <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Acceso restringido</h2>
+        <p style={{ color: 'var(--text2)', fontSize: 14, lineHeight: 1.6, marginBottom: 24 }}>
+          Ingresa el código que te dio el administrador,<br/>o abre tu link de invitación.
+        </p>
+
+        {/* Entrada de código corto */}
+        <input
+          value={code}
+          onChange={e => { setCode(e.target.value.toUpperCase()); setError('') }}
+          onKeyDown={e => e.key === 'Enter' && handleCode()}
+          placeholder="CÓDIGO (ej: VIX3K2)"
+          maxLength={6}
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            background: 'var(--bg2)', color: 'var(--text)',
+            border: `1px solid ${error ? '#ff3b30' : 'var(--border)'}`,
+            borderRadius: 10, padding: '14px 16px',
+            fontSize: 20, fontFamily: 'monospace', fontWeight: 700,
+            letterSpacing: 6, textAlign: 'center', outline: 'none',
+            marginBottom: 10, textTransform: 'uppercase',
+          }}
+        />
+        {error && (
+          <p style={{ color: '#ff3b30', fontSize: 13, marginBottom: 10 }}>{error}</p>
+        )}
+        <button
+          onClick={handleCode}
+          disabled={checking || !code.trim()}
+          style={{
+            width: '100%', padding: '14px', borderRadius: 10, border: 'none',
+            background: '#0A84FF', color: '#fff', fontSize: 16, fontWeight: 600,
+            cursor: checking ? 'wait' : 'pointer', opacity: !code.trim() ? 0.5 : 1,
+            fontFamily: 'var(--sans)',
+          }}
+        >
+          {checking ? 'Verificando...' : 'Ingresar'}
+        </button>
+
+        <p style={{ color: 'var(--text2)', fontSize: 12, marginTop: 20, lineHeight: 1.6 }}>
+          ¿Tienes un link? Ábrelo directamente<br/>desde el mensaje que recibiste.
+        </p>
+      </div>
+    </div>
+  )
 }
 
 function AppRoutes() {

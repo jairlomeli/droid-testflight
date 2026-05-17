@@ -160,30 +160,41 @@ function PublishForm() {
   )
 }
 
+const EXPIRY_OPTIONS = [
+  { label: 'Sin caducidad', value: null },
+  { label: '30 días',       value: 30   },
+  { label: '90 días',       value: 90   },
+  { label: '6 meses',       value: 180  },
+  { label: '1 año',         value: 365  },
+]
+
 // ─── INVITE LINKS ─────────────────────────────────────────────
 function InviteSection() {
-  const [links,  setLinks]  = useState([])
+  const [links,    setLinks]    = useState([])
   const [creating, setCreating] = useState(false)
   const [newName,  setNewName]  = useState('')
+  const [expiry,   setExpiry]   = useState(null) // días o null
 
   const generate = async () => {
     if (!newName.trim()) return
     setCreating(true)
-    const token = await createInvite({ name: newName.trim() })
-    const url   = `${window.location.origin}/invite/${token}`
-    setLinks(l => [...l, { name: newName.trim(), url }])
-    setNewName('')
-    setCreating(false)
+    try {
+      const { token, shortCode } = await createInvite({ name: newName.trim(), expiresInDays: expiry })
+      const url = `${window.location.origin}/invite/${token}`
+      setLinks(l => [...l, { name: newName.trim(), url, shortCode }])
+      setNewName('')
+    } finally {
+      setCreating(false)
+    }
   }
 
-  const copy = (url) => {
-    navigator.clipboard.writeText(url).catch(() => {})
-  }
+  const copy = (text) => navigator.clipboard.writeText(text).catch(() => {})
 
   return (
     <div>
-      <div style={{ padding: '0 16px 12px' }}>
-        <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ padding: '0 16px 16px' }}>
+        {/* Nombre */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
           <input
             className="form-input"
             placeholder="Nombre del tester o grupo"
@@ -192,35 +203,64 @@ function InviteSection() {
             onKeyDown={e => e.key === 'Enter' && generate()}
             style={{ flex: 1 }}
           />
+        </div>
+
+        {/* Caducidad + botón */}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <select
+            className="form-select"
+            value={expiry ?? ''}
+            onChange={e => setExpiry(e.target.value === '' ? null : Number(e.target.value))}
+            style={{ flex: 1 }}
+          >
+            {EXPIRY_OPTIONS.map(o => (
+              <option key={String(o.value)} value={o.value ?? ''}>{o.label}</option>
+            ))}
+          </select>
           <button
             className="btn-primary"
-            style={{ width: 'auto', padding: '12px 18px' }}
+            style={{ width: 'auto', padding: '12px 20px' }}
             onClick={generate}
-            disabled={creating}
+            disabled={creating || !newName.trim()}
           >
-            Generar
+            {creating ? '...' : 'Generar'}
           </button>
         </div>
       </div>
 
-      {links.map((l, i) => (
-        <div key={i} className="invite-box">
-          <div className="invite-inner">
-            <div style={{ minWidth: 0 }}>
-              <div className="invite-label">{l.name}</div>
-              <div className="invite-link" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {l.url}
-              </div>
-            </div>
-            <button className="copy-btn" onClick={() => copy(l.url)}>Copiar</button>
-          </div>
-        </div>
-      ))}
-
-      {links.length === 0 && (
+      {links.length === 0 ? (
         <p style={{ padding: '0 16px', color: 'var(--text2)', fontSize: 14 }}>
           Los links generados aparecerán aquí.
         </p>
+      ) : (
+        links.map((l, i) => (
+          <div key={i} className="invite-box">
+            <div className="invite-label" style={{ marginBottom: 8 }}>{l.name}</div>
+
+            {/* Código corto */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{
+                fontFamily: 'monospace', fontSize: 22, fontWeight: 700, letterSpacing: 4,
+                color: 'var(--text)', background: 'var(--bg3)',
+                padding: '6px 14px', borderRadius: 8, flex: 1, textAlign: 'center',
+              }}>
+                {l.shortCode}
+              </span>
+              <button className="copy-btn" onClick={() => copy(l.shortCode)}>Copiar código</button>
+            </div>
+
+            {/* Link largo */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div className="invite-link" style={{
+                flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                fontSize: 12, color: 'var(--text2)',
+              }}>
+                {l.url}
+              </div>
+              <button className="copy-btn" onClick={() => copy(l.url)}>Copiar link</button>
+            </div>
+          </div>
+        ))
       )}
     </div>
   )
