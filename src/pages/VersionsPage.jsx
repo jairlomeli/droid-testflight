@@ -16,10 +16,14 @@ export function VersionsPage() {
   const navigate       = useNavigate()
   const [versions, setVersions] = useState([])
   const [loading,  setLoading]  = useState(true)
+  const [error,    setError]    = useState(null)
 
   useEffect(() => {
+    setLoading(true)
+    setError(null)
     getVersionsByPlatform(platformId)
       .then(setVersions)
+      .catch(e => { console.error('getVersionsByPlatform error:', e); setError(e.message) })
       .finally(() => setLoading(false))
   }, [platformId])
 
@@ -33,6 +37,8 @@ export function VersionsPage() {
 
       {loading ? (
         <Spinner />
+      ) : error ? (
+        <Empty message={`Error: ${error}`} />
       ) : versions.length === 0 ? (
         <Empty message="Sin versiones disponibles aún." />
       ) : (

@@ -46,10 +46,15 @@ export const getVersionsByPlatform = async (platformId) => {
     query(
       collection(db, 'versions'),
       where('platformId', '==', platformId),
-      orderBy('createdAt', 'desc')
     )
   )
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  // Sort in JS to avoid needing a composite index (platformId + createdAt)
+  return docs.sort((a, b) => {
+    const ta = a.createdAt?.seconds ?? 0
+    const tb = b.createdAt?.seconds ?? 0
+    return tb - ta
+  })
 }
 
 // ─── BUILDS ───────────────────────────────────────────────────
@@ -60,10 +65,11 @@ export const getBuildsByVersion = async (platformId, version) => {
       where('platformId', '==', platformId),
       where('version', '==', version),
       where('active', '==', true),
-      orderBy('buildNumber', 'desc')
     )
   )
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  // Sort in JS to avoid needing composite indexes
+  return docs.sort((a, b) => b.buildNumber - a.buildNumber)
 }
 
 // ─── ADMIN: ADD BUILD ─────────────────────────────────────────
