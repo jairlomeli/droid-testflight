@@ -67,7 +67,7 @@ export const getBuildsByVersion = async (platformId, version) => {
 }
 
 // ─── ADMIN: ADD BUILD ─────────────────────────────────────────
-export const addBuild = async ({ platformId, version, buildNumber, environment, apkUrl, changelog, expireDays = 90 }) => {
+export const addBuild = async ({ platformId, version, buildNumber, environment, variant = 'Standard', apkUrl, changelog, expireDays = 90 }) => {
   const expiresAt = Timestamp.fromDate(
     new Date(Date.now() + expireDays * 24 * 60 * 60 * 1000)
   )
@@ -78,6 +78,7 @@ export const addBuild = async ({ platformId, version, buildNumber, environment, 
     version,
     buildNumber: Number(buildNumber),
     environment,
+    variant,
     apkUrl,
     changelog,
     expiresAt,
@@ -108,6 +109,37 @@ export const addBuild = async ({ platformId, version, buildNumber, environment, 
       buildCount: (verDoc.data().buildCount || 0) + 1,
     })
   }
+}
+
+// ─── ADMIN: PARSE & IMPORT BULK URLs ──────────────────────────
+// Parsea una URL de APK y extrae plataforma, ambiente, variante, versión y build number.
+// Formato esperado:
+//   app_{env}[_{variant}]_{platform}-all-{version}-{buildNum}_{buildCode}.apk
+export function parseApkUrl(rawUrl) {
+  const url = rawUrl.trim()
+  const filename = url.split('/').pop().split('?')[0]
+  const m = filename.match(
+    /app_(prd|stg|qa)(?:_(galaxy|spc))?_(mobile|tv)-all-(\d+\.\d+\.\d+)-\d+_(\d+)\.apk/i
+  )
+  if (!m) return null
+  const [, envRaw, variantRaw, platformRaw, version, buildCode] = m
+  return {
+    platformId:  platformRaw === 'tv' ? 'androidtv' : 'mobile',
+    environment: { prd: 'Prod', stg: 'STG', qa: 'QA' }[envRaw],
+    variant:     variantRaw ? { galaxy: 'Galaxy', spc: 'Special' }[variantRaw] : 'Standard',
+    version,
+    buildNumber: Number(buildCode),
+    apkUrl:      url,
+  }
+}
+
+export async function importBuilds(text, expireDays = 90) {
+  const urls = text.match(/https?:\/\/\S+\.apk/gi) || []
+  const builds = urls.map(parseApkUrl).filter(Boolean)
+  for (const b of builds) {
+    await addBuild({ ...b, changelog: '', expireDays })
+  }
+  return builds
 }
 
 // ─── ADMIN: DEACTIVATE BUILD ──────────────────────────────────

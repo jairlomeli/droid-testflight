@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { Nav } from '../components/Nav'
 import { TabBar } from '../components/TabBar'
-import { addBuild, createInvite } from '../services/db'
+import { addBuild, createInvite, parseApkUrl, importBuilds } from '../services/db'
 import { useAuth } from '../hooks/useAuth'
 
 const PLATFORMS = [
@@ -226,6 +226,128 @@ function InviteSection() {
   )
 }
 
+// ─── IMPORT SECTION ───────────────────────────────────────────
+const ENV_COLOR = { Prod: '#34c759', STG: '#ff9f0a', QA: '#0a84ff' }
+const PLATFORM_LABEL = { mobile: 'Mobile', androidtv: 'Android TV', firetv: 'Fire TV' }
+
+function ImportSection() {
+  const [text,    setText]    = useState('')
+  const [preview, setPreview] = useState(null)   // null | []
+  const [status,  setStatus]  = useState('idle') // idle | importing | done | error
+  const [error,   setError]   = useState('')
+
+  const analyze = () => {
+    const builds = (text.match(/https?:\/\/\S+\.apk/gi) || [])
+      .map(parseApkUrl).filter(Boolean)
+    setPreview(builds)
+    setStatus('idle')
+    setError('')
+  }
+
+  const doImport = async () => {
+    if (!preview?.length) return
+    setStatus('importing')
+    setError('')
+    try {
+      await importBuilds(text)
+      setStatus('done')
+      setText('')
+      setTimeout(() => { setPreview(null); setStatus('idle') }, 4000)
+    } catch (e) {
+      setError(e.message)
+      setStatus('idle')
+    }
+  }
+
+  // Agrupa preview por plataforma → ambiente → variante
+  const grouped = preview ? preview.reduce((acc, b) => {
+    const key = `${PLATFORM_LABEL[b.platformId] || b.platformId} — v${b.version}`
+    if (!acc[key]) acc[key] = []
+    acc[key].push(b)
+    return acc
+  }, {}) : null
+
+  return (
+    <div style={{ padding: '0 16px 24px' }}>
+      <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 10 }}>
+        Pega el bloque de URLs copiado de GCS. La app detecta plataforma, ambiente y variante automáticamente.
+      </p>
+
+      <textarea
+        style={{
+          width: '100%', minHeight: 180, boxSizing: 'border-box',
+          background: 'var(--bg2)', color: 'var(--text)',
+          border: '1px solid var(--border)', borderRadius: 10,
+          padding: '10px 12px', fontSize: 13, fontFamily: 'monospace',
+          resize: 'vertical', outline: 'none',
+        }}
+        placeholder={'Release:\nhttps://storage.cloud.google.com/...app_prd_mobile-all-4.44.1-041726_6400.apk (6400)\n...'}
+        value={text}
+        onChange={e => { setText(e.target.value); setPreview(null) }}
+      />
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+        <button
+          className="btn-primary"
+          style={{ flex: 1, background: 'var(--bg3)', color: 'var(--text)' }}
+          onClick={analyze}
+          disabled={!text.trim()}
+        >
+          Analizar
+        </button>
+        <button
+          className="btn-primary"
+          style={{ flex: 1 }}
+          onClick={doImport}
+          disabled={!preview?.length || status === 'importing'}
+        >
+          {status === 'importing' ? 'Importando...' :
+           status === 'done'      ? '✓ Importado' :
+           `Importar ${preview?.length ? `(${preview.length})` : ''}`}
+        </button>
+      </div>
+
+      {error && <p style={{ color: 'var(--red)', fontSize: 13, marginTop: 10 }}>{error}</p>}
+
+      {grouped && Object.keys(grouped).length === 0 && (
+        <p style={{ color: 'var(--red)', fontSize: 13, marginTop: 12 }}>
+          No se encontraron URLs de APK reconocibles en el texto.
+        </p>
+      )}
+
+      {grouped && Object.entries(grouped).map(([group, builds]) => (
+        <div key={group} style={{ marginTop: 16 }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>{group}</p>
+          {builds.map((b, i) => (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '8px 10px', background: 'var(--bg2)',
+              borderRadius: 8, marginBottom: 4, fontSize: 13,
+            }}>
+              <span style={{
+                background: ENV_COLOR[b.environment] + '22',
+                color: ENV_COLOR[b.environment],
+                borderRadius: 5, padding: '2px 7px', fontWeight: 600, fontSize: 12,
+              }}>
+                {b.environment}
+              </span>
+              {b.variant !== 'Standard' && (
+                <span style={{
+                  background: '#8e8e9322', color: 'var(--text2)',
+                  borderRadius: 5, padding: '2px 7px', fontSize: 12,
+                }}>
+                  {b.variant}
+                </span>
+              )}
+              <span style={{ color: 'var(--text2)', marginLeft: 'auto' }}>#{b.buildNumber}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── MAIN ADMIN PAGE ──────────────────────────────────────────
 export function AdminPage() {
   const { logout } = useAuth()
@@ -237,7 +359,7 @@ export function AdminPage() {
 
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 0, margin: '16px 16px 0', background: 'var(--bg2)', borderRadius: 10, padding: 3 }}>
-        {[['publish', 'Publicar'], ['invites', 'Links']].map(([id, label]) => (
+        {[['publish', 'Publicar'], ['import', 'Importar'], ['invites', 'Links']].map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -261,10 +383,12 @@ export function AdminPage() {
       </div>
 
       <p className="section-label" style={{ marginTop: 20 }}>
-        {tab === 'publish' ? 'Nueva compilación' : 'Links de invitación'}
+        {tab === 'publish' ? 'Nueva compilación' :
+         tab === 'import'  ? 'Importar URLs masivas' : 'Links de invitación'}
       </p>
 
-      {tab === 'publish' ? <PublishForm /> : <InviteSection />}
+      {tab === 'publish' ? <PublishForm /> :
+       tab === 'import'  ? <ImportSection /> : <InviteSection />}
 
       <div style={{ padding: '20px 16px 0' }}>
         <button className="btn-text" onClick={logout} style={{ color: 'var(--red)' }}>
