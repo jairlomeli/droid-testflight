@@ -177,6 +177,46 @@ export async function importBuilds(text, expireDays = 90) {
   return { saved, errors, total: builds.length }
 }
 
+// ─── ADMIN: DEDUP BUILDS ──────────────────────────────────────
+// Elimina builds duplicadas dejando solo 1 por (platformId + version + buildNumber).
+// Recalcula buildCount en la colección versions.
+export async function deduplicateBuilds() {
+  const snap = await getDocs(collection(db, 'builds'))
+  const all  = snap.docs.map(d => ({ _docId: d.id, ...d.data() }))
+
+  const groups = {}
+  for (const b of all) {
+    const key = `${b.platformId}|${b.version}|${b.buildNumber}`
+    if (!groups[key]) groups[key] = []
+    groups[key].push(b)
+  }
+
+  let deleted = 0
+  for (const builds of Object.values(groups)) {
+    if (builds.length > 1) {
+      // Conserva el primero, elimina el resto
+      for (const b of builds.slice(1)) {
+        await deleteDoc(doc(db, 'builds', b._docId))
+        deleted++
+      }
+    }
+  }
+
+  // Recalcula buildCount en versions
+  const [vSnap, bSnap] = await Promise.all([
+    getDocs(collection(db, 'versions')),
+    getDocs(collection(db, 'builds')),
+  ])
+  const remaining = bSnap.docs.map(d => d.data())
+  for (const vDoc of vSnap.docs) {
+    const { platformId, version } = vDoc.data()
+    const count = remaining.filter(b => b.platformId === platformId && b.version === version).length
+    await updateDoc(doc(db, 'versions', vDoc.id), { buildCount: count })
+  }
+
+  return deleted
+}
+
 // ─── ADMIN: DEACTIVATE BUILD ──────────────────────────────────
 export const deactivateBuild = async (buildId) => {
   await updateDoc(doc(db, 'builds', buildId), { active: false })

@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { Nav } from '../components/Nav'
 import { TabBar } from '../components/TabBar'
-import { addBuild, createInvite, parseApkUrl, importBuilds } from '../services/db'
+import { addBuild, createInvite, parseApkUrl, importBuilds, deduplicateBuilds } from '../services/db'
 import { useAuth } from '../hooks/useAuth'
 
 const PLATFORMS = [
@@ -231,11 +231,27 @@ const ENV_COLOR = { Prod: '#34c759', STG: '#ff9f0a', QA: '#0a84ff' }
 const PLATFORM_LABEL = { mobile: 'Mobile', androidtv: 'Android TV', firetv: 'Fire TV' }
 
 function ImportSection() {
-  const [text,    setText]    = useState('')
-  const [preview, setPreview] = useState(null)   // null | []
-  const [status,  setStatus]  = useState('idle') // idle | importing | done | error
-  const [error,   setError]   = useState('')
-  const [result,  setResult]  = useState(null)   // { saved, errors, total }
+  const [text,      setText]      = useState('')
+  const [preview,   setPreview]   = useState(null)
+  const [status,    setStatus]    = useState('idle') // idle | importing | done | error
+  const [error,     setError]     = useState('')
+  const [result,    setResult]    = useState(null)
+  const [dedupMsg,  setDedupMsg]  = useState('')
+  const [deduping,  setDeduping]  = useState(false)
+
+  const doDedup = async () => {
+    if (!confirm('¿Eliminar builds duplicadas? Esta acción no se puede deshacer.')) return
+    setDeduping(true)
+    setDedupMsg('')
+    try {
+      const deleted = await deduplicateBuilds()
+      setDedupMsg(`✅ ${deleted} duplicada${deleted !== 1 ? 's' : ''} eliminada${deleted !== 1 ? 's' : ''}. Contadores actualizados.`)
+    } catch (e) {
+      setDedupMsg(`❌ Error: ${e.message}`)
+    } finally {
+      setDeduping(false)
+    }
+  }
 
   const analyze = () => {
     const builds = (text.match(/https?:\/\/\S+\.apk/gi) || [])
@@ -275,9 +291,28 @@ function ImportSection() {
 
   return (
     <div style={{ padding: '0 16px 24px' }}>
-      <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 10 }}>
-        Pega el bloque de URLs copiado de GCS. La app detecta plataforma, ambiente y variante automáticamente.
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <p style={{ fontSize: 13, color: 'var(--text2)', margin: 0 }}>
+          Pega el bloque de URLs copiado de GCS. La app detecta plataforma, ambiente y variante automáticamente.
+        </p>
+        <button
+          onClick={doDedup}
+          disabled={deduping}
+          style={{
+            flexShrink: 0, marginLeft: 10,
+            background: 'var(--bg3)', color: 'var(--text2)',
+            border: '1px solid var(--border)', borderRadius: 8,
+            padding: '6px 12px', fontSize: 12, cursor: 'pointer',
+          }}
+        >
+          {deduping ? 'Limpiando…' : '🧹 Limpiar duplicados'}
+        </button>
+      </div>
+      {dedupMsg && (
+        <p style={{ fontSize: 13, marginBottom: 10, color: dedupMsg.startsWith('✅') ? '#34c759' : 'var(--red)' }}>
+          {dedupMsg}
+        </p>
+      )}
 
       <textarea
         style={{

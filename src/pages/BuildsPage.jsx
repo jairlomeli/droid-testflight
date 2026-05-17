@@ -61,9 +61,21 @@ function BuildCard({ build, platform }) {
       </div>
 
       <div className="build-env">
-        {build.environment} environment
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: build.changelog ? 6 : 0 }}>
+          <span>{build.environment}</span>
+          {build.variant && build.variant !== 'Standard' && (
+            <span style={{
+              background: build.variant === 'Special' ? '#ff9f0a22' : '#0a84ff22',
+              color:      build.variant === 'Special' ? '#ff9f0a'   : '#0a84ff',
+              border:     `1px solid ${build.variant === 'Special' ? '#ff9f0a' : '#0a84ff'}`,
+              borderRadius: 5, padding: '1px 7px', fontSize: 11, fontWeight: 600,
+            }}>
+              {build.variant}
+            </span>
+          )}
+        </div>
         {build.changelog && (
-          <div style={{ marginTop: 8, whiteSpace: 'pre-line', lineHeight: 1.6 }}>
+          <div style={{ whiteSpace: 'pre-line', lineHeight: 1.6 }}>
             {build.changelog}
           </div>
         )}

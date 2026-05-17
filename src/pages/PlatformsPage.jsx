@@ -18,13 +18,6 @@ const PLATFORMS = [
     emoji:    '📺',
     gradient: 'linear-gradient(135deg, #30a050, #30D158)',
   },
-  {
-    id:       'firetv',
-    label:    'Fire TV',
-    sub:      'Amazon Fire OS',
-    emoji:    '🔥',
-    gradient: 'linear-gradient(135deg, #cc4400, #FF6B2B)',
-  },
 ]
 
 export function PlatformsPage() {
