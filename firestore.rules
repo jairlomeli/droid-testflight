@@ -1,0 +1,32 @@
+// firestore.rules
+// Pega estas reglas en Firebase Console → Firestore → Rules
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Plataformas — lectura pública, escritura solo admin
+    match /platforms/{doc} {
+      allow read:  if true;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Versiones — lectura pública, escritura solo admin
+    match /versions/{doc} {
+      allow read:  if true;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Builds — lectura pública, escritura solo admin
+    match /builds/{doc} {
+      allow read:  if true;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Invites — lectura pública (para validar token), escritura solo admin
+    match /invites/{doc} {
+      allow read:  if true;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+  }
+}
