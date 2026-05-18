@@ -192,11 +192,12 @@ function ExpiryBadge({ expiresAt }) {
 
 // ─── INVITE LINKS ─────────────────────────────────────────────
 function InviteSection() {
-  const [invites,  setInvites]  = useState([])
-  const [loading,  setLoading]  = useState(true)
-  const [creating, setCreating] = useState(false)
-  const [newName,  setNewName]  = useState('')
-  const [expiry,   setExpiry]   = useState(null)
+  const [invites,      setInvites]      = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [creating,     setCreating]     = useState(false)
+  const [newName,      setNewName]      = useState('')
+  const [expiry,       setExpiry]       = useState(null)
+  const [deactivating, setDeactivating] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -221,6 +222,18 @@ function InviteSection() {
     if (!confirm('¿Desactivar este código? El tester ya no podrá usarlo.')) return
     await deactivateInvite(id)
     await load()
+  }
+
+  const deactivateAll = async () => {
+    if (!confirm('¿Desactivar TODOS los códigos activos? Esta acción no se puede deshacer.')) return
+    setDeactivating(true)
+    try {
+      const active = invites.filter(i => i.active)
+      for (const i of active) await deactivateInvite(i.id)
+      await load()
+    } finally {
+      setDeactivating(false)
+    }
   }
 
   const copy = (text) => navigator.clipboard.writeText(text).catch(() => {})
@@ -262,7 +275,22 @@ function InviteSection() {
       </div>
 
       {/* Lista histórica */}
-      <p className="section-label" style={{ marginTop: 4 }}>Todos los códigos</p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', marginTop: 4 }}>
+        <p className="section-label" style={{ margin: 0 }}>Todos los códigos</p>
+        {invites.some(i => i.active) && (
+          <button
+            onClick={deactivateAll}
+            disabled={deactivating}
+            style={{
+              fontSize: 11, padding: '4px 10px', borderRadius: 7,
+              border: '1px solid #ff3b3044', background: '#ff3b3012',
+              color: '#ff3b30', cursor: 'pointer',
+            }}
+          >
+            {deactivating ? 'Desactivando…' : 'Desactivar todos'}
+          </button>
+        )}
+      </div>
 
       {loading ? (
         <p style={{ padding: '0 16px', color: 'var(--text2)', fontSize: 14 }}>Cargando…</p>
@@ -291,11 +319,13 @@ function InviteSection() {
 
             {/* Código corto */}
             <div style={{
-              fontFamily: 'monospace', fontSize: 20, fontWeight: 700, letterSpacing: 4,
-              color: 'var(--text)', background: 'var(--bg3)',
-              padding: '8px 14px', borderRadius: 8, textAlign: 'center', marginBottom: 8,
+              fontFamily: 'monospace', fontSize: inv.shortCode ? 20 : 13, fontWeight: 700,
+              letterSpacing: inv.shortCode ? 4 : 0,
+              color: inv.shortCode ? 'var(--text)' : 'var(--text2)',
+              background: 'var(--bg3)', padding: '8px 14px', borderRadius: 8,
+              textAlign: 'center', marginBottom: 8,
             }}>
-              {inv.shortCode}
+              {inv.shortCode || 'Sin código — invitación generada antes de esta versión'}
             </div>
 
             {/* Caducidad */}
@@ -524,7 +554,7 @@ function ImportSection() {
 // ─── MAIN ADMIN PAGE ──────────────────────────────────────────
 export function AdminPage() {
   const { logout } = useAuth()
-  const [tab, setTab] = useState('publish') // publish | invites
+  const [tab, setTab] = useState('import') // import | invites
 
   return (
     <div className="page">
@@ -532,7 +562,7 @@ export function AdminPage() {
 
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 0, margin: '16px 16px 0', background: 'var(--bg2)', borderRadius: 10, padding: 3 }}>
-        {[['publish', 'Publicar'], ['import', 'Importar'], ['invites', 'Links']].map(([id, label]) => (
+        {[['import', 'Importar'], ['invites', 'Links']].map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -556,12 +586,10 @@ export function AdminPage() {
       </div>
 
       <p className="section-label" style={{ marginTop: 20 }}>
-        {tab === 'publish' ? 'Nueva compilación' :
-         tab === 'import'  ? 'Importar URLs masivas' : 'Links de invitación'}
+        {tab === 'import' ? 'Importar URLs masivas' : 'Links de invitación'}
       </p>
 
-      {tab === 'publish' ? <PublishForm /> :
-       tab === 'import'  ? <ImportSection /> : <InviteSection />}
+      {tab === 'import' ? <ImportSection /> : <InviteSection />}
 
       <div style={{ padding: '20px 16px 0' }}>
         <button className="btn-text" onClick={logout} style={{ color: 'var(--red)' }}>
