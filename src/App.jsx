@@ -35,13 +35,18 @@ function TesterRoute({ children }) {
     setChecking(true)
     setError('')
     try {
-      const invite = await validateShortCode(code.trim())
-      if (invite) {
-        sessionStorage.setItem('df_invite', invite.token || code.trim())
-        sessionStorage.setItem('df_invite_name', invite.name || '')
+      const result = await validateShortCode(code.trim())
+      if (result.ok) {
+        sessionStorage.setItem('df_invite', result.token || code.trim())
+        sessionStorage.setItem('df_invite_name', result.name || '')
         window.location.reload()
       } else {
-        setError('Código inválido o expirado.')
+        const msgs = {
+          deactivated: 'Este código ha sido desactivado. Contacta al administrador.',
+          expired:     'Este código ha expirado. Contacta al administrador.',
+          not_found:   'Código inválido.',
+        }
+        setError(msgs[result.reason] || 'Código inválido.')
       }
     } catch {
       setError('Error al verificar. Intenta de nuevo.')

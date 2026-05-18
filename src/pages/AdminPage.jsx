@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { Nav } from '../components/Nav'
 import { TabBar } from '../components/TabBar'
-import { addBuild, createInvite, parseApkUrl, importBuilds, deduplicateBuilds } from '../services/db'
+import { addBuild, createInvite, parseApkUrl, importBuilds, deduplicateBuilds, getInvites, deactivateInvite } from '../services/db'
 import { useAuth } from '../hooks/useAuth'
 
 const PLATFORMS = [
@@ -168,32 +168,67 @@ const EXPIRY_OPTIONS = [
   { label: '1 año',         value: 365  },
 ]
 
+function daysLeft(expiresAt) {
+  if (!expiresAt) return null
+  const d = expiresAt.toDate ? expiresAt.toDate() : new Date(expiresAt)
+  return Math.ceil((d - Date.now()) / 86400000)
+}
+
+function ExpiryBadge({ expiresAt }) {
+  const days = daysLeft(expiresAt)
+  if (days === null) return <span style={{ color: 'var(--text2)', fontSize: 12 }}>Sin caducidad</span>
+  const color = days <= 0 ? '#ff3b30' : days <= 30 ? '#ff9f0a' : '#34c759'
+  const label = days <= 0 ? 'Expirado' : `${days}d restantes`
+  return (
+    <span style={{
+      fontSize: 12, fontWeight: 600, color,
+      background: color + '18', borderRadius: 5, padding: '2px 8px',
+      border: `1px solid ${color}44`,
+    }}>
+      ● {label}
+    </span>
+  )
+}
+
 // ─── INVITE LINKS ─────────────────────────────────────────────
 function InviteSection() {
-  const [links,    setLinks]    = useState([])
+  const [invites,  setInvites]  = useState([])
+  const [loading,  setLoading]  = useState(true)
   const [creating, setCreating] = useState(false)
   const [newName,  setNewName]  = useState('')
-  const [expiry,   setExpiry]   = useState(null) // días o null
+  const [expiry,   setExpiry]   = useState(null)
+
+  const load = async () => {
+    setLoading(true)
+    try { setInvites(await getInvites()) } finally { setLoading(false) }
+  }
+
+  useState(() => { load() }, [])
 
   const generate = async () => {
     if (!newName.trim()) return
     setCreating(true)
     try {
-      const { token, shortCode } = await createInvite({ name: newName.trim(), expiresInDays: expiry })
-      const url = `${window.location.origin}/invite/${token}`
-      setLinks(l => [...l, { name: newName.trim(), url, shortCode }])
+      await createInvite({ name: newName.trim(), expiresInDays: expiry })
       setNewName('')
+      await load()
     } finally {
       setCreating(false)
     }
+  }
+
+  const deactivate = async (id) => {
+    if (!confirm('¿Desactivar este código? El tester ya no podrá usarlo.')) return
+    await deactivateInvite(id)
+    await load()
   }
 
   const copy = (text) => navigator.clipboard.writeText(text).catch(() => {})
 
   return (
     <div>
+      {/* Formulario de generación */}
       <div style={{ padding: '0 16px 16px' }}>
-        {/* Nombre */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
           <input
             className="form-input"
@@ -204,8 +239,6 @@ function InviteSection() {
             style={{ flex: 1 }}
           />
         </div>
-
-        {/* Caducidad + botón */}
         <div style={{ display: 'flex', gap: 10 }}>
           <select
             className="form-select"
@@ -228,40 +261,71 @@ function InviteSection() {
         </div>
       </div>
 
-      {links.length === 0 ? (
-        <p style={{ padding: '0 16px', color: 'var(--text2)', fontSize: 14 }}>
-          Los links generados aparecerán aquí.
-        </p>
-      ) : (
-        links.map((l, i) => (
-          <div key={i} className="invite-box">
-            <div className="invite-label" style={{ marginBottom: 8 }}>{l.name}</div>
+      {/* Lista histórica */}
+      <p className="section-label" style={{ marginTop: 4 }}>Todos los códigos</p>
+
+      {loading ? (
+        <p style={{ padding: '0 16px', color: 'var(--text2)', fontSize: 14 }}>Cargando…</p>
+      ) : invites.length === 0 ? (
+        <p style={{ padding: '0 16px', color: 'var(--text2)', fontSize: 14 }}>No hay códigos generados aún.</p>
+      ) : invites.map(inv => {
+        const days   = daysLeft(inv.expiresAt)
+        const expired = days !== null && days <= 0
+        const active  = inv.active && !expired
+        const url     = `${window.location.origin}/invite/${inv.token}`
+        const statusColor  = active ? '#34c759' : '#ff3b30'
+        const statusLabel  = !inv.active ? 'Inactivo' : expired ? 'Expirado' : 'Activo'
+        const faded = !active
+
+        return (
+          <div key={inv.id} className="invite-box" style={{ opacity: faded ? 0.55 : 1, marginBottom: 10 }}>
+            {/* Fila 1: nombre + estado */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span className="invite-label" style={{ margin: 0 }}>{inv.name}</span>
+              <span style={{
+                fontSize: 11, fontWeight: 700, color: statusColor,
+                background: statusColor + '18', borderRadius: 5, padding: '2px 8px',
+                border: `1px solid ${statusColor}44`,
+              }}>{statusLabel}</span>
+            </div>
 
             {/* Código corto */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{
-                fontFamily: 'monospace', fontSize: 22, fontWeight: 700, letterSpacing: 4,
-                color: 'var(--text)', background: 'var(--bg3)',
-                padding: '6px 14px', borderRadius: 8, flex: 1, textAlign: 'center',
-              }}>
-                {l.shortCode}
-              </span>
-              <button className="copy-btn" onClick={() => copy(l.shortCode)}>Copiar código</button>
+            <div style={{
+              fontFamily: 'monospace', fontSize: 20, fontWeight: 700, letterSpacing: 4,
+              color: 'var(--text)', background: 'var(--bg3)',
+              padding: '8px 14px', borderRadius: 8, textAlign: 'center', marginBottom: 8,
+            }}>
+              {inv.shortCode}
             </div>
 
-            {/* Link largo */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div className="invite-link" style={{
-                flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                fontSize: 12, color: 'var(--text2)',
-              }}>
-                {l.url}
-              </div>
-              <button className="copy-btn" onClick={() => copy(l.url)}>Copiar link</button>
+            {/* Caducidad */}
+            <div style={{ marginBottom: 10 }}>
+              <ExpiryBadge expiresAt={inv.expiresAt} />
+            </div>
+
+            {/* Botones */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {active && (
+                <button className="copy-btn" onClick={() => copy(inv.shortCode)}>Copiar código</button>
+              )}
+              {active && (
+                <button className="copy-btn" onClick={() => copy(url)}>Copiar link</button>
+              )}
+              {inv.active && !expired && (
+                <button
+                  onClick={() => deactivate(inv.id)}
+                  style={{
+                    fontSize: 12, padding: '5px 10px', borderRadius: 7, border: '1px solid #ff3b3044',
+                    background: '#ff3b3012', color: '#ff3b30', cursor: 'pointer',
+                  }}
+                >
+                  Desactivar
+                </button>
+              )}
             </div>
           </div>
-        ))
-      )}
+        )
+      })}
     </div>
   )
 }

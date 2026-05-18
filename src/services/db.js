@@ -237,13 +237,13 @@ export const deactivateBuild = async (buildId) => {
 
 export const validateInviteToken = async (token) => {
   const snap = await getDocs(
-    query(collection(db, 'invites'), where('token', '==', token), where('active', '==', true))
+    query(collection(db, 'invites'), where('token', '==', token))
   )
-  if (snap.empty) return null
+  if (snap.empty) return { ok: false, reason: 'not_found' }
   const data = snap.docs[0].data()
-  // Verifica que no haya expirado
-  if (data.expiresAt && data.expiresAt.toDate() < new Date()) return null
-  return { id: snap.docs[0].id, ...data }
+  if (!data.active) return { ok: false, reason: 'deactivated' }
+  if (data.expiresAt && data.expiresAt.toDate() < new Date()) return { ok: false, reason: 'expired' }
+  return { ok: true, id: snap.docs[0].id, ...data }
 }
 
 // Genera un código corto memorable de 6 caracteres (sin chars ambiguos)
@@ -277,10 +277,22 @@ export const createInvite = async ({ name, platformId, expiresInDays = null }) =
 
 export const validateShortCode = async (code) => {
   const snap = await getDocs(
-    query(collection(db, 'invites'), where('shortCode', '==', code.toUpperCase().trim()), where('active', '==', true))
+    query(collection(db, 'invites'), where('shortCode', '==', code.toUpperCase().trim()))
   )
-  if (snap.empty) return null
+  if (snap.empty) return { ok: false, reason: 'not_found' }
   const data = snap.docs[0].data()
-  if (data.expiresAt && data.expiresAt.toDate() < new Date()) return null
-  return { id: snap.docs[0].id, ...data }
+  if (!data.active) return { ok: false, reason: 'deactivated' }
+  if (data.expiresAt && data.expiresAt.toDate() < new Date()) return { ok: false, reason: 'expired' }
+  return { ok: true, id: snap.docs[0].id, ...data }
+}
+
+export const getInvites = async () => {
+  const snap = await getDocs(
+    query(collection(db, 'invites'), orderBy('createdAt', 'desc'))
+  )
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+export const deactivateInvite = async (id) => {
+  await updateDoc(doc(db, 'invites', id), { active: false })
 }
