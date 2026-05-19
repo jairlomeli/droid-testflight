@@ -12,7 +12,7 @@ const PLATFORM_META = {
 }
 
 function daysUntil(timestamp) {
-  if (!timestamp) return 90
+  if (!timestamp) return 60
   const ms   = timestamp.toDate() - new Date()
   return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)))
 }

@@ -70,13 +70,18 @@ export const getBuildsByVersion = async (platformId, version) => {
       where('active', '==', true),
     )
   )
-  const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-  // Sort in JS to avoid needing composite indexes
+  const now = Date.now()
+  const docs = snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(b => {
+      if (!b.expiresAt) return true
+      return b.expiresAt.toDate().getTime() > now
+    })
   return docs.sort((a, b) => b.buildNumber - a.buildNumber)
 }
 
 // ─── ADMIN: ADD BUILD ─────────────────────────────────────────
-export const addBuild = async ({ platformId, version, buildNumber, environment, variant = 'Standard', apkUrl, changelog, expireDays = 90 }) => {
+export const addBuild = async ({ platformId, version, buildNumber, environment, variant = 'Standard', apkUrl, changelog, expireDays = 60 }) => {
   const expiresAt = Timestamp.fromDate(
     new Date(Date.now() + expireDays * 24 * 60 * 60 * 1000)
   )
@@ -109,14 +114,16 @@ export const addBuild = async ({ platformId, version, buildNumber, environment, 
       platformId,
       version,
       buildCount: 1,
+      expiresAt,
       createdAt: serverTimestamp(),
     })
   } else {
-    // Incrementa el contador
+    // Incrementa el contador y actualiza expiresAt si este build expira más tarde
     const verDoc = verSnap.docs[0]
-    await updateDoc(doc(db, 'versions', verDoc.id), {
-      buildCount: (verDoc.data().buildCount || 0) + 1,
-    })
+    const currentExpiry = verDoc.data().expiresAt
+    const updates = { buildCount: (verDoc.data().buildCount || 0) + 1 }
+    if (!currentExpiry || expiresAt.toMillis() > currentExpiry.toMillis()) updates.expiresAt = expiresAt
+    await updateDoc(doc(db, 'versions', verDoc.id), updates)
   }
 }
 
@@ -142,7 +149,7 @@ export function parseApkUrl(rawUrl) {
   }
 }
 
-export async function importBuilds(text, expireDays = 90) {
+export async function importBuilds(text, expireDays = 60) {
   // Force token refresh so Firestore rules see the admin claim
   const user = auth.currentUser
   if (user) {

@@ -5,6 +5,7 @@ import path from 'path'
 import fs from 'fs'
 import admin from 'firebase-admin'
 import { Timestamp } from 'firebase-admin/firestore'
+import cron from 'node-cron'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -84,7 +85,7 @@ function extractApkUrls(payload) {
 }
 
 // Write one build to Firestore
-async function saveBuild(build, expireDays = 90) {
+async function saveBuild(build, expireDays = 60) {
   const expiresAt = Timestamp.fromDate(
     new Date(Date.now() + expireDays * 24 * 60 * 60 * 1000)
   )
@@ -101,7 +102,7 @@ async function saveBuild(build, expireDays = 90) {
     createdAt:   Timestamp.now(),
   })
 
-  // Upsert version doc
+  // Upsert version doc — track latest expiresAt for display in tester
   const verSnap = await db.collection('versions')
     .where('platformId', '==', build.platformId)
     .where('version',    '==', build.version)
@@ -112,12 +113,70 @@ async function saveBuild(build, expireDays = 90) {
       platformId: build.platformId,
       version:    build.version,
       buildCount: 1,
+      expiresAt,
       createdAt:  Timestamp.now(),
     })
   } else {
     const vDoc = verSnap.docs[0]
-    await vDoc.ref.update({ buildCount: (vDoc.data().buildCount || 0) + 1 })
+    const current = vDoc.data().expiresAt
+    const updates = { buildCount: (vDoc.data().buildCount || 0) + 1 }
+    if (!current || expiresAt.toMillis() > current.toMillis()) updates.expiresAt = expiresAt
+    await vDoc.ref.update(updates)
   }
+}
+
+// ── Cleanup expired builds ─────────────────────────────────────────────────
+async function cleanupExpiredBuilds() {
+  console.log('[Cleanup] Starting expired build cleanup...')
+  const now = Timestamp.now()
+
+  const expiredSnap = await db.collection('builds')
+    .where('expiresAt', '<=', now)
+    .get()
+
+  if (expiredSnap.empty) {
+    console.log('[Cleanup] No expired builds found.')
+    return { deleted: 0, versionsDeleted: 0 }
+  }
+
+  const affectedVersions = new Set()
+  for (const docRef of expiredSnap.docs) {
+    const { platformId, version } = docRef.data()
+    affectedVersions.add(`${platformId}|${version}`)
+    await docRef.ref.delete()
+  }
+
+  let versionsDeleted = 0
+  for (const key of affectedVersions) {
+    const [platformId, version] = key.split('|')
+    const remaining = await db.collection('builds')
+      .where('platformId', '==', platformId)
+      .where('version',    '==', version)
+      .get()
+
+    const verSnap = await db.collection('versions')
+      .where('platformId', '==', platformId)
+      .where('version',    '==', version)
+      .get()
+
+    if (!verSnap.empty) {
+      if (remaining.empty) {
+        await verSnap.docs[0].ref.delete()
+        versionsDeleted++
+      } else {
+        // Recalculate latest expiresAt from remaining builds
+        let latestExpiry = null
+        for (const b of remaining.docs) {
+          const exp = b.data().expiresAt
+          if (exp && (!latestExpiry || exp.toMillis() > latestExpiry.toMillis())) latestExpiry = exp
+        }
+        await verSnap.docs[0].ref.update({ buildCount: remaining.size, ...(latestExpiry && { expiresAt: latestExpiry }) })
+      }
+    }
+  }
+
+  console.log(`[Cleanup] Done: ${expiredSnap.size} builds deleted, ${versionsDeleted} empty versions removed`)
+  return { deleted: expiredSnap.size, versionsDeleted }
 }
 
 // ── Webhook endpoint ───────────────────────────────────────────────────────
@@ -172,6 +231,30 @@ app.post('/api/webhook', async (req, res) => {
   console.log(`[Webhook] Done: saved=${saved} skipped=${skipped} errors=${errors}`)
   res.json({ ok: true, saved, skipped, errors })
 })
+
+// ── Cleanup endpoint ───────────────────────────────────────────────────────
+app.get('/api/cleanup', async (req, res) => {
+  const expectedToken = process.env.DROIDFLIGHT_WEBHOOK_TOKEN
+  const auth = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim()
+  if (!expectedToken || auth !== expectedToken) {
+    return res.status(401).json({ ok: false, error: 'Unauthorized' })
+  }
+  if (!db) return res.status(500).json({ ok: false, error: 'Firestore not initialized' })
+  try {
+    const result = await cleanupExpiredBuilds()
+    res.json({ ok: true, ...result })
+  } catch (e) {
+    console.error('[Cleanup] Error:', e.message)
+    res.status(500).json({ ok: false, error: e.message })
+  }
+})
+
+// ── Daily cron cleanup (runs at 03:00 server time) ─────────────────────────
+cron.schedule('0 3 * * *', async () => {
+  if (!db) return
+  try { await cleanupExpiredBuilds() } catch (e) { console.error('[Cron] Cleanup error:', e.message) }
+})
+console.log('[Cron] Daily cleanup scheduled at 03:00')
 
 // ── Serve static frontend ──────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, 'dist')))
