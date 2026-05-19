@@ -128,7 +128,7 @@ export function parseApkUrl(rawUrl) {
   const url = rawUrl.trim()
   const filename = url.split('/').pop().split('?')[0]
   const m = filename.match(
-    /app_(prd|stg|qa)(?:_(galaxy|spc))?_(mobile|tv)-all-(\d+\.\d+\.\d+)-\d+_(\d+)\.apk/i
+    /app_(prd|stg|qa)(?:_(galaxy|spc))?_(mobile|tv)-(?:all|prd|stg|qa)-(\d+\.\d+\.\d+)-\d+_(\d+)\.apk/i
   )
   if (!m) return null
   const [, envRaw, variantRaw, platformRaw, version, buildCode] = m
