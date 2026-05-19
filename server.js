@@ -77,8 +77,10 @@ function parseApkUrl(rawUrl) {
 // Extract every APK URL from anywhere in the Slack payload
 function extractApkUrls(payload) {
   const text = JSON.stringify(payload)
-  const matches = text.match(/(?:https?:\/\/|gs:\/\/)[^\s"\\]+\.apk/gi) || []
-  return [...new Set(matches)]
+  const matches = text.match(/https?:\/\/[^\s"<>]+\.apk/gi) || []
+  // Also catch gs:// paths
+  const gsMatches = text.match(/gs:\/\/[^\s"<>]+\.apk/gi) || []
+  return [...new Set([...matches, ...gsMatches])]
 }
 
 // Write one build to Firestore
@@ -133,12 +135,16 @@ app.post('/api/webhook', async (req, res) => {
   }
 
   const urls = extractApkUrls(req.body)
-  console.log(`[Webhook] Found ${urls.length} APK URL(s) in payload`)
+  console.log(`[Webhook] Found ${urls.length} APK URL(s):`, urls)
+  if (!urls.length) {
+    return res.status(400).json({ ok: false, error: 'No APK URLs found in payload' })
+  }
+
   const builds = urls.map(parseApkUrl).filter(Boolean)
-  console.log(`[Webhook] Parsed ${builds.length} valid build(s)`)
+  console.log(`[Webhook] Parsed ${builds.length} valid build(s) from ${urls.length} URL(s)`)
 
   if (!builds.length) {
-    return res.status(400).json({ ok: false, error: 'No APK URLs found' })
+    return res.status(400).json({ ok: false, error: `Found ${urls.length} APK URL(s) but none matched the expected filename pattern (app_<env>_<platform>-all-<version>_<code>.apk)` })
   }
 
   const existingSnap = await db.collection('builds').get()
