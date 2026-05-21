@@ -23,10 +23,29 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.token.admin == true;
     }
 
-    // Invites — lectura pública (para validar token), escritura solo admin
-    match /invites/{doc} {
+    // Invites — lectura pública (para validar código), escritura solo admin
+    match /invites/{inviteId} {
       allow read:  if true;
       allow write: if request.auth != null && request.auth.token.admin == true;
+
+      // Subcolección de dispositivos — cualquiera puede leer y registrar
+      // (el cliente verifica el límite de 4 antes de crear)
+      match /devices/{deviceId} {
+        allow read:   if true;
+        allow create: if true;
+      }
+    }
+
+    // Logs de acceso — admin puede leer, cualquiera puede crear
+    match /accessLogs/{doc} {
+      allow read:   if request.auth != null && request.auth.token.admin == true;
+      allow create: if true;
+    }
+
+    // Logs de instalación — admin puede leer, cualquiera puede crear
+    match /installLogs/{doc} {
+      allow read:   if request.auth != null && request.auth.token.admin == true;
+      allow create: if true;
     }
   }
 }

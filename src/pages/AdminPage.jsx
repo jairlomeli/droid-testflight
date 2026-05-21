@@ -1,8 +1,11 @@
 // src/pages/AdminPage.jsx
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Nav } from '../components/Nav'
 import { TabBar } from '../components/TabBar'
-import { addBuild, createInvite, parseApkUrl, importBuilds, deduplicateBuilds, getInvites, deactivateInvite } from '../services/db'
+import {
+  addBuild, createInvite, parseApkUrl, importBuilds, deduplicateBuilds,
+  getInvites, deactivateInvite, getAccessLogs, getInstallLogs,
+} from '../services/db'
 import { useAuth } from '../hooks/useAuth'
 
 const PLATFORMS = [
@@ -304,17 +307,30 @@ function InviteSection() {
         const statusColor  = active ? '#34c759' : '#ff3b30'
         const statusLabel  = !inv.active ? 'Inactivo' : expired ? 'Expirado' : 'Activo'
         const faded = !active
+        const devCount = inv.deviceCount ?? 0
 
         return (
           <div key={inv.id} className="invite-box" style={{ opacity: faded ? 0.55 : 1, marginBottom: 10 }}>
             {/* Fila 1: nombre + estado */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span className="invite-label" style={{ margin: 0 }}>{inv.name}</span>
-              <span style={{
-                fontSize: 11, fontWeight: 700, color: statusColor,
-                background: statusColor + '18', borderRadius: 5, padding: '2px 8px',
-                border: `1px solid ${statusColor}44`,
-              }}>{statusLabel}</span>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {/* Contador de dispositivos */}
+                <span style={{
+                  fontSize: 11, fontWeight: 600,
+                  color: devCount >= 4 ? '#ff9f0a' : 'var(--text2)',
+                  background: devCount >= 4 ? '#ff9f0a18' : 'var(--bg3)',
+                  borderRadius: 5, padding: '2px 8px',
+                  border: `1px solid ${devCount >= 4 ? '#ff9f0a44' : 'var(--border)'}`,
+                }}>
+                  📱 {devCount}/4 dispositivos
+                </span>
+                <span style={{
+                  fontSize: 11, fontWeight: 700, color: statusColor,
+                  background: statusColor + '18', borderRadius: 5, padding: '2px 8px',
+                  border: `1px solid ${statusColor}44`,
+                }}>{statusLabel}</span>
+              </div>
             </div>
 
             {/* Código corto */}
@@ -415,7 +431,6 @@ function ImportSection() {
     }
   }
 
-  // Agrupa preview por plataforma → ambiente → variante
   const grouped = preview ? preview.reduce((acc, b) => {
     const key = `${PLATFORM_LABEL[b.platformId] || b.platformId} — v${b.version}`
     if (!acc[key]) acc[key] = []
@@ -551,10 +566,119 @@ function ImportSection() {
   )
 }
 
+// ─── ACTIVITY SECTION ─────────────────────────────────────────
+function ActivitySection() {
+  const [accessLogs,  setAccessLogs]  = useState([])
+  const [installLogs, setInstallLogs] = useState([])
+  const [loading,     setLoading]     = useState(true)
+
+  useEffect(() => {
+    Promise.all([getAccessLogs(), getInstallLogs()])
+      .then(([access, installs]) => {
+        setAccessLogs(access)
+        setInstallLogs(installs)
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+
+  const accessToday  = accessLogs.filter(l => l.timestamp?.toDate?.() >= todayStart).length
+  const installsToday = installLogs.filter(l => l.timestamp?.toDate?.() >= todayStart).length
+
+  const fmt = (ts) => {
+    if (!ts?.toDate) return '—'
+    const d = ts.toDate()
+    return d.toLocaleDateString('es', { month: 'short', day: 'numeric' }) + ' ' +
+           d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  if (loading) {
+    return <p style={{ padding: '0 16px', color: 'var(--text2)', fontSize: 14 }}>Cargando...</p>
+  }
+
+  return (
+    <div style={{ padding: '0 16px 24px' }}>
+      {/* Contadores de hoy */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+        <div style={{
+          flex: 1, background: 'var(--bg2)', borderRadius: 12,
+          padding: '14px 16px', textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 30, fontWeight: 700, color: '#0a84ff' }}>{accessToday}</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 3 }}>Accesos hoy</div>
+        </div>
+        <div style={{
+          flex: 1, background: 'var(--bg2)', borderRadius: 12,
+          padding: '14px 16px', textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 30, fontWeight: 700, color: '#34c759' }}>{installsToday}</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 3 }}>Descargas hoy</div>
+        </div>
+      </div>
+
+      {/* Accesos recientes */}
+      <p className="section-label" style={{ marginBottom: 8 }}>Accesos recientes</p>
+      {accessLogs.length === 0 ? (
+        <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>Sin registros aún.</p>
+      ) : accessLogs.slice(0, 20).map(log => (
+        <div key={log.id} style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '10px 12px', background: 'var(--bg2)', borderRadius: 8, marginBottom: 6,
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{log.inviteName || log.code || '—'}</div>
+            <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2 }}>
+              {log.code && <span style={{ fontFamily: 'monospace' }}>{log.code}</span>}
+              {log.code && log.deviceType && ' · '}
+              {log.deviceType}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text2)', textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+            {fmt(log.timestamp)}
+          </div>
+        </div>
+      ))}
+
+      {/* Descargas recientes */}
+      <p className="section-label" style={{ marginTop: 16, marginBottom: 8 }}>Descargas recientes</p>
+      {installLogs.length === 0 ? (
+        <p style={{ fontSize: 13, color: 'var(--text2)' }}>Sin descargas registradas aún.</p>
+      ) : installLogs.slice(0, 20).map(log => (
+        <div key={log.id} style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '10px 12px', background: 'var(--bg2)', borderRadius: 8, marginBottom: 6,
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>
+              {log.platformId} v{log.version}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2 }}>
+              {log.environment}
+              {log.code && <span> · <span style={{ fontFamily: 'monospace' }}>{log.code}</span></span>}
+              {log.deviceType && ` · ${log.deviceType}`}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text2)', textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+            {fmt(log.timestamp)}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── MAIN ADMIN PAGE ──────────────────────────────────────────
+const TABS = [
+  ['import',   'Importar'],
+  ['invites',  'Links'],
+  ['activity', 'Actividad'],
+]
+
 export function AdminPage() {
   const { logout } = useAuth()
-  const [tab, setTab] = useState('import') // import | invites
+  const [tab, setTab] = useState('import')
 
   return (
     <div className="page">
@@ -562,7 +686,7 @@ export function AdminPage() {
 
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 0, margin: '16px 16px 0', background: 'var(--bg2)', borderRadius: 10, padding: 3 }}>
-        {[['import', 'Importar'], ['invites', 'Links']].map(([id, label]) => (
+        {TABS.map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -586,10 +710,14 @@ export function AdminPage() {
       </div>
 
       <p className="section-label" style={{ marginTop: 20 }}>
-        {tab === 'import' ? 'Importar URLs masivas' : 'Links de invitación'}
+        {tab === 'import'   ? 'Importar URLs masivas' :
+         tab === 'invites'  ? 'Links de invitación' :
+         'Actividad reciente'}
       </p>
 
-      {tab === 'import' ? <ImportSection /> : <InviteSection />}
+      {tab === 'import'   && <ImportSection />}
+      {tab === 'invites'  && <InviteSection />}
+      {tab === 'activity' && <ActivitySection />}
 
       <div style={{ padding: '20px 16px 0' }}>
         <button className="btn-text" onClick={logout} style={{ color: 'var(--red)' }}>

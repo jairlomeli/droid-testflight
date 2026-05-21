@@ -5,34 +5,72 @@
 //
 // platforms (collection)
 //   └── {platformId}          (doc: "mobile" | "androidtv" | "firetv")
-//         name: "Mobile"
-//         icon: "📱"
-//         order: 1
 //
 // versions (collection)
 //   └── {versionId}           (doc auto-id)
-//         platformId: "mobile"
-//         version: "5.0.1"
-//         buildCount: 3
-//         createdAt: timestamp
 //
 // builds (collection)
 //   └── {buildId}             (doc auto-id)
-//         platformId: "mobile"
-//         version: "5.0.1"
-//         buildNumber: 3201
-//         environment: "Prod"  // "Prod" | "STG" | "QA"
-//         apkUrl: "https://github.com/.../releases/download/..."
-//         changelog: "- Fix crash\n- Mejora de rendimiento"
-//         expiresAt: timestamp
-//         createdAt: timestamp
-//         active: true
+//
+// invites (collection)
+//   └── {inviteId}            (doc auto-id)
+//         ...
+//         devices/ (subcollection)
+//           └── {fingerprint} (doc per device)
+//
+// accessLogs (collection)
+//   └── {logId}               (doc auto-id)
+//
+// installLogs (collection)
+//   └── {logId}               (doc auto-id)
 
 import {
-  collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
-  query, where, orderBy, serverTimestamp, Timestamp
+  collection, doc, getDocs, addDoc, updateDoc, deleteDoc, setDoc,
+  query, where, orderBy, serverTimestamp, Timestamp, limit
 } from 'firebase/firestore'
 import { db, auth } from './firebase'
+
+// ─── DEVICE FINGERPRINT ───────────────────────────────────────
+// Combinación de userAgent + resolución + timezone → hash hex de 16 chars
+export function getDeviceFingerprint() {
+  const raw = `${navigator.userAgent}|${screen.width}x${screen.height}|${Intl.DateTimeFormat().resolvedOptions().timeZone}`
+  let h1 = 5381, h2 = 0
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw.charCodeAt(i)
+    h1 = ((h1 << 5) + h1 + c) >>> 0
+    h2 = (h2 * 31 + c) >>> 0
+  }
+  return `${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`
+}
+
+function detectDeviceType() {
+  const ua = navigator.userAgent
+  if (/TV|television|smart-tv|SmartTV|BRAVIA|webOS|Tizen/i.test(ua)) return 'TV'
+  if (/Mobi|Android|iPhone|iPad/i.test(ua)) return 'Mobile'
+  return 'Desktop'
+}
+
+// Verifica y registra el dispositivo en la subcolección del invite.
+// Retorna { ok: true } si se permite, { ok: false, reason: 'device_limit' } si alcanzó el límite.
+async function checkAndRegisterDevice(inviteDocId) {
+  const fp = getDeviceFingerprint()
+  const devicesRef = collection(db, 'invites', inviteDocId, 'devices')
+  const devSnap = await getDocs(devicesRef)
+
+  // Dispositivo ya registrado → dejarlo entrar sin contar como nuevo
+  if (devSnap.docs.some(d => d.id === fp)) return { ok: true }
+
+  // Límite de 4 dispositivos
+  if (devSnap.size >= 4) return { ok: false, reason: 'device_limit' }
+
+  // Registrar nuevo dispositivo
+  await setDoc(doc(db, 'invites', inviteDocId, 'devices', fp), {
+    registeredAt: serverTimestamp(),
+    userAgent:    navigator.userAgent.slice(0, 200),
+    deviceType:   detectDeviceType(),
+  })
+  return { ok: true }
+}
 
 // ─── PLATFORMS ────────────────────────────────────────────────
 export const getPlatforms = async () => {
@@ -86,7 +124,6 @@ export const addBuild = async ({ platformId, version, buildNumber, environment, 
     new Date(Date.now() + expireDays * 24 * 60 * 60 * 1000)
   )
 
-  // Agrega la build
   await addDoc(collection(db, 'builds'), {
     platformId,
     version,
@@ -100,7 +137,6 @@ export const addBuild = async ({ platformId, version, buildNumber, environment, 
     createdAt: serverTimestamp(),
   })
 
-  // Verifica si ya existe la versión, si no la crea
   const verSnap = await getDocs(
     query(
       collection(db, 'versions'),
@@ -118,7 +154,6 @@ export const addBuild = async ({ platformId, version, buildNumber, environment, 
       createdAt: serverTimestamp(),
     })
   } else {
-    // Incrementa el contador y actualiza expiresAt si este build expira más tarde
     const verDoc = verSnap.docs[0]
     const currentExpiry = verDoc.data().expiresAt
     const updates = { buildCount: (verDoc.data().buildCount || 0) + 1 }
@@ -128,9 +163,6 @@ export const addBuild = async ({ platformId, version, buildNumber, environment, 
 }
 
 // ─── ADMIN: PARSE & IMPORT BULK URLs ──────────────────────────
-// Parsea una URL de APK y extrae plataforma, ambiente, variante, versión y build number.
-// Formato esperado:
-//   app_{env}[_{variant}]_{platform}-all-{version}-{buildNum}_{buildCode}.apk
 export function parseApkUrl(rawUrl) {
   const url = rawUrl.trim()
   const filename = url.split('/').pop().split('?')[0]
@@ -150,7 +182,6 @@ export function parseApkUrl(rawUrl) {
 }
 
 export async function importBuilds(text, expireDays = 60) {
-  // Force token refresh so Firestore rules see the admin claim
   const user = auth.currentUser
   if (user) {
     const tokenResult = await user.getIdTokenResult(true)
@@ -164,7 +195,6 @@ export async function importBuilds(text, expireDays = 60) {
   const builds = (text.match(/https?:\/\/\S+\.apk/gi) || [])
     .map(parseApkUrl).filter(Boolean)
 
-  // Carga claves existentes para prevenir duplicados en tiempo de importación
   const existingSnap = await getDocs(collection(db, 'builds'))
   const existingKeys = new Set(
     existingSnap.docs.map(d => {
@@ -183,7 +213,7 @@ export async function importBuilds(text, expireDays = 60) {
     }
     try {
       await addBuild({ ...b, changelog: '', expireDays })
-      existingKeys.add(key) // evita duplicar si el texto tiene la misma URL dos veces
+      existingKeys.add(key)
       saved++
     } catch (e) {
       errors.push(`${b.environment} ${b.variant} ${b.platformId} #${b.buildNumber}: ${e.message}`)
@@ -194,8 +224,6 @@ export async function importBuilds(text, expireDays = 60) {
 }
 
 // ─── ADMIN: DEDUP BUILDS ──────────────────────────────────────
-// Elimina builds duplicadas dejando solo 1 por (platformId + version + buildNumber).
-// Recalcula buildCount en la colección versions.
 export async function deduplicateBuilds() {
   const snap = await getDocs(collection(db, 'builds'))
   const all  = snap.docs.map(d => ({ _docId: d.id, ...d.data() }))
@@ -210,7 +238,6 @@ export async function deduplicateBuilds() {
   let deleted = 0
   for (const builds of Object.values(groups)) {
     if (builds.length > 1) {
-      // Conserva el primero, elimina el resto
       for (const b of builds.slice(1)) {
         await deleteDoc(doc(db, 'builds', b._docId))
         deleted++
@@ -218,7 +245,6 @@ export async function deduplicateBuilds() {
     }
   }
 
-  // Recalcula buildCount en versions
   const [vSnap, bSnap] = await Promise.all([
     getDocs(collection(db, 'versions')),
     getDocs(collection(db, 'builds')),
@@ -239,8 +265,6 @@ export const deactivateBuild = async (buildId) => {
 }
 
 // ─── INVITE LINKS ─────────────────────────────────────────────
-// Los links de invitación son simplemente tokens guardados en Firestore.
-// Un tester accede con: droidflight.app/invite/{token}
 
 export const validateInviteToken = async (token) => {
   const snap = await getDocs(
@@ -250,10 +274,13 @@ export const validateInviteToken = async (token) => {
   const data = snap.docs[0].data()
   if (!data.active) return { ok: false, reason: 'deactivated' }
   if (data.expiresAt && data.expiresAt.toDate() < new Date()) return { ok: false, reason: 'expired' }
+
+  const devCheck = await checkAndRegisterDevice(snap.docs[0].id)
+  if (!devCheck.ok) return devCheck
+
   return { ok: true, id: snap.docs[0].id, ...data }
 }
 
-// Genera un código corto memorable de 6 caracteres (sin chars ambiguos)
 function genShortCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
@@ -271,7 +298,6 @@ export const createInvite = async ({ name, platformId, expiresInDays = null }) =
     active:      true,
     createdAt:   serverTimestamp(),
   }
-  // null = sin caducidad (nunca expira)
   if (expiresInDays != null) {
     data.expiresAt = Timestamp.fromDate(
       new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
@@ -282,7 +308,8 @@ export const createInvite = async ({ name, platformId, expiresInDays = null }) =
   return { token, shortCode }
 }
 
-export const validateShortCode = async (code) => {
+// options.skipDeviceCheck = true cuando se restaura sesión desde localStorage
+export const validateShortCode = async (code, { skipDeviceCheck = false } = {}) => {
   const snap = await getDocs(
     query(collection(db, 'invites'), where('shortCode', '==', code.toUpperCase().trim()))
   )
@@ -290,16 +317,78 @@ export const validateShortCode = async (code) => {
   const data = snap.docs[0].data()
   if (!data.active) return { ok: false, reason: 'deactivated' }
   if (data.expiresAt && data.expiresAt.toDate() < new Date()) return { ok: false, reason: 'expired' }
+
+  if (!skipDeviceCheck) {
+    const devCheck = await checkAndRegisterDevice(snap.docs[0].id)
+    if (!devCheck.ok) return devCheck
+  }
+
   return { ok: true, id: snap.docs[0].id, ...data }
 }
 
+// Devuelve invites con deviceCount desde la subcolección
 export const getInvites = async () => {
   const snap = await getDocs(
     query(collection(db, 'invites'), orderBy('createdAt', 'desc'))
   )
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const invites = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const withCounts = await Promise.all(
+    invites.map(async inv => {
+      const devSnap = await getDocs(collection(db, 'invites', inv.id, 'devices'))
+      return { ...inv, deviceCount: devSnap.size }
+    })
+  )
+  return withCounts
 }
 
 export const deactivateInvite = async (id) => {
   await updateDoc(doc(db, 'invites', id), { active: false })
+}
+
+// ─── ACCESS LOGS ──────────────────────────────────────────────
+
+export const logAccess = async ({ inviteId, code, inviteName }) => {
+  try {
+    await addDoc(collection(db, 'accessLogs'), {
+      inviteId:    inviteId || null,
+      code:        code || null,
+      inviteName:  inviteName || null,
+      userAgent:   navigator.userAgent.slice(0, 200),
+      deviceType:  detectDeviceType(),
+      timestamp:   serverTimestamp(),
+    })
+  } catch {
+    // No bloquear el flujo si el log falla
+  }
+}
+
+export const logInstall = async ({ buildId, version, environment, platformId }) => {
+  try {
+    await addDoc(collection(db, 'installLogs'), {
+      buildId:     buildId || null,
+      version:     version || null,
+      environment: environment || null,
+      platformId:  platformId || null,
+      code:        sessionStorage.getItem('df_invite_code') || null,
+      userAgent:   navigator.userAgent.slice(0, 200),
+      deviceType:  detectDeviceType(),
+      timestamp:   serverTimestamp(),
+    })
+  } catch {
+    // No bloquear el flujo si el log falla
+  }
+}
+
+export const getAccessLogs = async () => {
+  const snap = await getDocs(
+    query(collection(db, 'accessLogs'), orderBy('timestamp', 'desc'), limit(100))
+  )
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+export const getInstallLogs = async () => {
+  const snap = await getDocs(
+    query(collection(db, 'installLogs'), orderBy('timestamp', 'desc'), limit(100))
+  )
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }

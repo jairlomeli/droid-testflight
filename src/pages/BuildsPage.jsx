@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { Nav, Spinner, Empty } from '../components/Nav'
 import { TabBar } from '../components/TabBar'
-import { getBuildsByVersion } from '../services/db'
+import { getBuildsByVersion, logInstall } from '../services/db'
 
 const PLATFORM_META = {
   mobile:    { label: 'Mobile',      emoji: '📱', gradient: 'linear-gradient(135deg,#1a6ef5,#0A84FF)' },
@@ -23,10 +23,15 @@ function BuildCard({ build, platform }) {
   const days    = daysUntil(build.expiresAt)
 
   const handleInstall = () => {
-    // Abre la URL de descarga del APK directamente.
-    // En Android, el navegador descargará el .apk y lanzará el instalador nativo.
     if (build.apkUrl) {
       setStatus('loading')
+      // Log de descarga (fire & forget)
+      logInstall({
+        buildId:     build.id,
+        version:     build.version,
+        environment: build.environment,
+        platformId:  platform,
+      })
       window.location.href = build.apkUrl
       setTimeout(() => setStatus('done'), 2000)
     }

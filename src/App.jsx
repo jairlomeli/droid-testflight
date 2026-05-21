@@ -1,8 +1,8 @@
 // src/App.jsx
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
-import { validateShortCode } from './services/db'
+import { validateShortCode, logAccess } from './services/db'
 
 import { PlatformsPage } from './pages/PlatformsPage'
 import { VersionsPage }  from './pages/VersionsPage'
@@ -20,16 +20,86 @@ function AdminRoute() {
   return <AdminPage />
 }
 
-// Verifica que el tester tenga un token válido en sessionStorage.
-// Si no tiene, muestra pantalla de acceso con código corto o link.
+function clearStoredSession() {
+  localStorage.removeItem('df_stored_code')
+  localStorage.removeItem('df_stored_expires')
+  localStorage.removeItem('df_stored_name')
+}
+
+function saveToLocalStorage(code, name, expiresAt) {
+  localStorage.setItem('df_stored_code', code)
+  localStorage.setItem('df_stored_name', name || '')
+  if (expiresAt) {
+    const expDate = expiresAt.toDate ? expiresAt.toDate() : new Date(expiresAt)
+    localStorage.setItem('df_stored_expires', expDate.toISOString())
+  } else {
+    localStorage.removeItem('df_stored_expires')
+  }
+}
+
+// Verifica que el tester tenga un token válido.
+// Soporta sesión persistente via localStorage.
 function TesterRoute({ children }) {
-  const hasInvite = sessionStorage.getItem('df_invite')
+  // 'init' | 'checking' | 'ready' | 'code'
+  const [phase,    setPhase]    = useState('init')
   const [code,     setCode]     = useState('')
   const [error,    setError]    = useState('')
   const [checking, setChecking] = useState(false)
 
-  if (hasInvite) return children
+  useEffect(() => {
+    // Ya tiene sesión en esta pestaña
+    if (sessionStorage.getItem('df_invite')) {
+      setPhase('ready')
+      return
+    }
 
+    const storedCode = localStorage.getItem('df_stored_code')
+    if (!storedCode) {
+      setPhase('code')
+      return
+    }
+
+    // Verificar expiración local primero (evita llamada a Firestore si ya expiró)
+    const storedExpires = localStorage.getItem('df_stored_expires')
+    if (storedExpires && new Date(storedExpires) <= new Date()) {
+      clearStoredSession()
+      setPhase('code')
+      return
+    }
+
+    // Validar contra Firestore (sin registrar dispositivo de nuevo)
+    setPhase('checking')
+    validateShortCode(storedCode, { skipDeviceCheck: true })
+      .then(result => {
+        if (result.ok) {
+          sessionStorage.setItem('df_invite', result.token || storedCode)
+          sessionStorage.setItem('df_invite_name', result.name || localStorage.getItem('df_stored_name') || '')
+          sessionStorage.setItem('df_invite_code', result.shortCode || storedCode)
+          setPhase('ready')
+        } else {
+          clearStoredSession()
+          setPhase('code')
+        }
+      })
+      .catch(() => {
+        // Error de red → ser permisivo, dejar entrar si la sesión local es válida
+        sessionStorage.setItem('df_invite', storedCode)
+        sessionStorage.setItem('df_invite_code', storedCode)
+        setPhase('ready')
+      })
+  }, [])
+
+  if (phase === 'init' || phase === 'checking') {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: 'var(--text2)', fontSize: 15 }}>Verificando acceso...</p>
+      </div>
+    )
+  }
+
+  if (phase === 'ready') return children
+
+  // ── Pantalla de entrada de código ──────────────────────────
   const handleCode = async () => {
     if (!code.trim()) return
     setChecking(true)
@@ -37,14 +107,24 @@ function TesterRoute({ children }) {
     try {
       const result = await validateShortCode(code.trim())
       if (result.ok) {
+        // Guardar en localStorage para sesión persistente
+        saveToLocalStorage(result.shortCode || code.trim(), result.name, result.expiresAt)
+
+        // Guardar en sessionStorage para esta pestaña
         sessionStorage.setItem('df_invite', result.token || code.trim())
         sessionStorage.setItem('df_invite_name', result.name || '')
+        sessionStorage.setItem('df_invite_code', result.shortCode || code.trim())
+
+        // Log de acceso (fire & forget)
+        logAccess({ inviteId: result.id, code: result.shortCode || code.trim(), inviteName: result.name || '' })
+
         window.location.reload()
       } else {
         const msgs = {
-          deactivated: 'Este código ha sido desactivado. Contacta al administrador.',
-          expired:     'Este código ha expirado. Contacta al administrador.',
-          not_found:   'Código inválido.',
+          deactivated:  'Este código ha sido desactivado. Contacta al administrador.',
+          expired:      'Este código ha expirado. Contacta al administrador.',
+          device_limit: 'Este código ha alcanzado el límite de dispositivos. Contacta al administrador.',
+          not_found:    'Código inválido.',
         }
         setError(msgs[result.reason] || 'Código inválido.')
       }
@@ -67,7 +147,6 @@ function TesterRoute({ children }) {
           Ingresa el código que te dio el administrador,<br/>o abre tu link de invitación.
         </p>
 
-        {/* Entrada de código corto */}
         <input
           value={code}
           onChange={e => { setCode(e.target.value.toUpperCase()); setError('') }}
