@@ -320,8 +320,13 @@ export const getInvites = async () => {
   const invites = snap.docs.map(d => ({ id: d.id, ...d.data() }))
   const withCounts = await Promise.all(
     invites.map(async inv => {
-      const devSnap = await getDocs(collection(db, 'invites', inv.id, 'devices'))
-      return { ...inv, deviceCount: devSnap.size }
+      try {
+        const devSnap = await getDocs(collection(db, 'invites', inv.id, 'devices'))
+        return { ...inv, deviceCount: devSnap.size }
+      } catch {
+        // Subcollection no accesible (reglas de Firestore pendientes de deploy)
+        return { ...inv, deviceCount: 0 }
+      }
     })
   )
   return withCounts
