@@ -139,13 +139,13 @@ function TesterRoute({ children }) {
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center',
       justifyContent: 'center', padding: 24, textAlign: 'center',
-      background: '#000000',
+      background: '#F5F5F5',
     }}>
       <div style={{ maxWidth: 320, width: '100%' }}>
         {/* Ícono */}
         <div style={{
           width: 80, height: 80, borderRadius: 22,
-          background: '#0A84FF',
+          background: '#3DDC84',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 38, margin: '0 auto 24px',
         }}>
@@ -154,12 +154,12 @@ function TesterRoute({ children }) {
 
         {/* Título */}
         <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 8px', lineHeight: 1.2 }}>
-          <span style={{ color: '#ffffff' }}>Droid - </span>
-          <span style={{ color: '#0A84FF' }}>TestFlight</span>
+          <span style={{ color: '#1C1C1E' }}>Droid - </span>
+          <span style={{ color: '#3DDC84' }}>TestFlight</span>
         </h1>
 
         {/* Subtítulo */}
-        <p style={{ color: '#8E8E93', fontSize: 13, margin: '0 0 32px', lineHeight: 1.5 }}>
+        <p style={{ color: '#6E6E73', fontSize: 13, margin: '0 0 32px', lineHeight: 1.5 }}>
           Distribución de APKs para testers
         </p>
 
@@ -172,13 +172,13 @@ function TesterRoute({ children }) {
           maxLength={6}
           style={{
             width: '100%', boxSizing: 'border-box',
-            background: '#1C1C1E', color: '#ffffff',
-            border: error ? '1px solid #ff3b30' : 'none',
-            borderRadius: 12, padding: '14px 16px',
+            background: '#ffffff', color: '#1C1C1E',
+            border: `1px solid ${error ? '#ff3b30' : '#E5E5EA'}`,
+            borderRadius: 12, padding: '13px 16px',
             fontSize: 20, fontFamily: 'monospace', fontWeight: 700,
             letterSpacing: 4, textAlign: 'center', outline: 'none',
             marginBottom: 10, textTransform: 'uppercase',
-            caretColor: '#0A84FF',
+            caretColor: '#3DDC84',
           }}
         />
         {error && (
@@ -191,7 +191,7 @@ function TesterRoute({ children }) {
           disabled={checking || !code.trim()}
           style={{
             width: '100%', padding: '14px', borderRadius: 12, border: 'none',
-            background: '#0A84FF', color: '#ffffff', fontSize: 16, fontWeight: 600,
+            background: '#3DDC84', color: '#ffffff', fontSize: 16, fontWeight: 600,
             cursor: checking ? 'wait' : 'pointer',
             opacity: !code.trim() ? 0.45 : 1,
             fontFamily: 'var(--sans)',
@@ -201,10 +201,10 @@ function TesterRoute({ children }) {
           {checking ? 'Verificando...' : 'Ingresar'}
         </button>
 
-        {/* Badges de plataformas */}
+        {/* Plataformas */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          gap: 6, marginTop: 24, color: '#8E8E93', fontSize: 12,
+          gap: 6, marginTop: 24, color: '#AEAEB2', fontSize: 12,
         }}>
           <span>Android TV</span>
           <span>·</span>
