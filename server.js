@@ -234,6 +234,14 @@ app.post('/api/invites/:id/deactivate', requireAdminToken, async (req, res) => {
   res.json({ ok: true })
 })
 
+// DELETE /api/invites/:id — eliminar permanentemente un código
+app.delete('/api/invites/:id', requireAdminToken, async (req, res) => {
+  if (!db) return res.status(500).json({ ok: false, error: 'Firestore not initialized' })
+  await db.collection('invites').doc(req.params.id).delete()
+  console.log(`[Invites] Deleted ${req.params.id}`)
+  res.json({ ok: true })
+})
+
 // ── Webhook endpoint ───────────────────────────────────────────────────────
 app.post('/api/webhook', async (req, res) => {
   const expectedToken = process.env.DROIDFLIGHT_WEBHOOK_TOKEN

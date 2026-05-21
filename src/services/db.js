@@ -343,6 +343,17 @@ export const deactivateInvite = async (id) => {
   if (!res.ok) throw new Error(json.error || 'Error al desactivar invitación')
 }
 
+export const deleteInvite = async (id) => {
+  if (!auth.currentUser) throw new Error('No hay sesión activa.')
+  const idToken = await auth.currentUser.getIdToken(true)
+  const res = await fetch(`/api/invites/${id}`, {
+    method:  'DELETE',
+    headers: { 'Authorization': `Bearer ${idToken}` },
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || 'Error al eliminar invitación')
+}
+
 // ─── ACCESS LOGS ──────────────────────────────────────────────
 
 export const logAccess = async ({ inviteId, code, inviteName }) => {

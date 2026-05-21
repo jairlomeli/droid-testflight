@@ -4,7 +4,7 @@ import { Nav } from '../components/Nav'
 import { TabBar } from '../components/TabBar'
 import {
   addBuild, createInvite, parseApkUrl, importBuilds, deduplicateBuilds,
-  getInvites, deactivateInvite, getAccessLogs, getInstallLogs,
+  getInvites, deactivateInvite, deleteInvite, getAccessLogs, getInstallLogs,
 } from '../services/db'
 import { useAuth } from '../hooks/useAuth'
 
@@ -227,6 +227,12 @@ function InviteSection() {
     await load()
   }
 
+  const remove = async (id) => {
+    if (!confirm('¿Eliminar este código? Esta acción no se puede deshacer.')) return
+    await deleteInvite(id)
+    await load()
+  }
+
   const deactivateAll = async () => {
     if (!confirm('¿Desactivar TODOS los códigos activos? Esta acción no se puede deshacer.')) return
     setDeactivating(true)
@@ -368,6 +374,15 @@ function InviteSection() {
                   Desactivar
                 </button>
               )}
+              <button
+                onClick={() => remove(inv.id)}
+                style={{
+                  fontSize: 12, padding: '5px 10px', borderRadius: 7, border: '1px solid #ff3b30',
+                  background: '#ff3b30', color: '#fff', cursor: 'pointer',
+                }}
+              >
+                Eliminar
+              </button>
             </div>
           </div>
         )
