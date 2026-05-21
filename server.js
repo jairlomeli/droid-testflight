@@ -179,6 +179,61 @@ async function cleanupExpiredBuilds() {
   return { deleted: expiredSnap.size, versionsDeleted }
 }
 
+// ── Admin API: verifica Firebase ID token con claim admin ─────────────────
+async function requireAdminToken(req, res, next) {
+  const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim()
+  if (!bearer) return res.status(401).json({ ok: false, error: 'No token provided' })
+  try {
+    const decoded = await admin.auth().verifyIdToken(bearer)
+    if (!decoded.admin) return res.status(403).json({ ok: false, error: 'Not an admin' })
+    req.adminUser = decoded
+    next()
+  } catch (e) {
+    return res.status(401).json({ ok: false, error: 'Invalid or expired token' })
+  }
+}
+
+function genShortCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+// POST /api/invites — crear nuevo código de invitación
+app.post('/api/invites', requireAdminToken, async (req, res) => {
+  if (!db) return res.status(500).json({ ok: false, error: 'Firestore not initialized' })
+  const { name, platformId, expiresInDays } = req.body
+  if (!name) return res.status(400).json({ ok: false, error: 'name is required' })
+
+  const token = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10)
+  const shortCode = genShortCode()
+
+  const data = {
+    token,
+    shortCode,
+    name,
+    platformId: platformId || null,
+    active:     true,
+    createdAt:  Timestamp.now(),
+  }
+  if (expiresInDays != null) {
+    data.expiresAt = Timestamp.fromDate(
+      new Date(Date.now() + Number(expiresInDays) * 24 * 60 * 60 * 1000)
+    )
+  }
+
+  await db.collection('invites').add(data)
+  console.log(`[Invites] Created "${name}" → ${shortCode}`)
+  res.json({ ok: true, token, shortCode })
+})
+
+// POST /api/invites/:id/deactivate — desactivar un código
+app.post('/api/invites/:id/deactivate', requireAdminToken, async (req, res) => {
+  if (!db) return res.status(500).json({ ok: false, error: 'Firestore not initialized' })
+  await db.collection('invites').doc(req.params.id).update({ active: false })
+  console.log(`[Invites] Deactivated ${req.params.id}`)
+  res.json({ ok: true })
+})
+
 // ── Webhook endpoint ───────────────────────────────────────────────────────
 app.post('/api/webhook', async (req, res) => {
   const expectedToken = process.env.DROIDFLIGHT_WEBHOOK_TOKEN

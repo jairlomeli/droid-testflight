@@ -281,31 +281,17 @@ export const validateInviteToken = async (token) => {
   return { ok: true, id: snap.docs[0].id, ...data }
 }
 
-function genShortCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-}
-
 export const createInvite = async ({ name, platformId, expiresInDays = null }) => {
-  const token     = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10)
-  const shortCode = genShortCode()
-
-  const data = {
-    token,
-    shortCode,
-    name,
-    platformId:  platformId || null,
-    active:      true,
-    createdAt:   serverTimestamp(),
-  }
-  if (expiresInDays != null) {
-    data.expiresAt = Timestamp.fromDate(
-      new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
-    )
-  }
-
-  await addDoc(collection(db, 'invites'), data)
-  return { token, shortCode }
+  if (!auth.currentUser) throw new Error('No hay sesión activa.')
+  const idToken = await auth.currentUser.getIdToken(true)
+  const res = await fetch('/api/invites', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+    body:    JSON.stringify({ name, platformId, expiresInDays }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || 'Error al crear invitación')
+  return json
 }
 
 // options.skipDeviceCheck = true cuando se restaura sesión desde localStorage
@@ -342,7 +328,14 @@ export const getInvites = async () => {
 }
 
 export const deactivateInvite = async (id) => {
-  await updateDoc(doc(db, 'invites', id), { active: false })
+  if (!auth.currentUser) throw new Error('No hay sesión activa.')
+  const idToken = await auth.currentUser.getIdToken(true)
+  const res = await fetch(`/api/invites/${id}/deactivate`, {
+    method:  'POST',
+    headers: { 'Authorization': `Bearer ${idToken}` },
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || 'Error al desactivar invitación')
 }
 
 // ─── ACCESS LOGS ──────────────────────────────────────────────
