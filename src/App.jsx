@@ -21,81 +21,78 @@ function AdminRoute() {
 }
 
 function clearStoredSession() {
-  localStorage.removeItem('df_stored_code')
-  localStorage.removeItem('df_stored_expires')
-  localStorage.removeItem('df_stored_name')
+  try {
+    localStorage.removeItem('df_access_code')
+    localStorage.removeItem('df_access_expiry')
+    localStorage.removeItem('df_access_name')
+    // Limpiar claves antiguas por si acaso
+    localStorage.removeItem('df_stored_code')
+    localStorage.removeItem('df_stored_expires')
+    localStorage.removeItem('df_stored_name')
+  } catch {}
 }
 
 function saveToLocalStorage(code, name, expiresAt) {
-  localStorage.setItem('df_stored_code', code)
-  localStorage.setItem('df_stored_name', name || '')
-  if (expiresAt) {
-    const expDate = expiresAt.toDate ? expiresAt.toDate() : new Date(expiresAt)
-    localStorage.setItem('df_stored_expires', expDate.toISOString())
-  } else {
-    localStorage.removeItem('df_stored_expires')
-  }
+  try {
+    localStorage.setItem('df_access_code', code)
+    localStorage.setItem('df_access_name', name || '')
+    if (expiresAt) {
+      const expDate = expiresAt.toDate ? expiresAt.toDate() : new Date(expiresAt)
+      localStorage.setItem('df_access_expiry', expDate.toISOString())
+    } else {
+      localStorage.removeItem('df_access_expiry')
+    }
+  } catch {}
 }
 
-// Verifica que el tester tenga un token válido.
-// Soporta sesión persistente via localStorage.
+// Verifica que el tester tenga acceso.
+// Sesión persistente via localStorage — sin round-trip a Firestore en el restore
+// para máxima compatibilidad con TV browsers.
 function TesterRoute({ children }) {
-  // 'init' | 'checking' | 'ready' | 'code'
+  // 'init' | 'ready' | 'code'
   const [phase,    setPhase]    = useState('init')
   const [code,     setCode]     = useState('')
   const [error,    setError]    = useState('')
   const [checking, setChecking] = useState(false)
 
   useEffect(() => {
-    // Ya tiene sesión en esta pestaña
-    if (sessionStorage.getItem('df_invite')) {
-      setPhase('ready')
-      return
-    }
-
-    const storedCode = localStorage.getItem('df_stored_code')
-    if (!storedCode) {
-      setPhase('code')
-      return
-    }
-
-    // Verificar expiración local primero (evita llamada a Firestore si ya expiró)
-    const storedExpires = localStorage.getItem('df_stored_expires')
-    if (storedExpires && new Date(storedExpires) <= new Date()) {
-      clearStoredSession()
-      setPhase('code')
-      return
-    }
-
-    // Validar contra Firestore (sin registrar dispositivo de nuevo)
-    setPhase('checking')
-    validateShortCode(storedCode, { skipDeviceCheck: true })
-      .then(result => {
-        if (result.ok) {
-          sessionStorage.setItem('df_invite', result.token || storedCode)
-          sessionStorage.setItem('df_invite_name', result.name || localStorage.getItem('df_stored_name') || '')
-          sessionStorage.setItem('df_invite_code', result.shortCode || storedCode)
-          setPhase('ready')
-        } else {
-          clearStoredSession()
-          setPhase('code')
-        }
-      })
-      .catch(() => {
-        // Error de red → ser permisivo, dejar entrar si la sesión local es válida
-        sessionStorage.setItem('df_invite', storedCode)
-        sessionStorage.setItem('df_invite_code', storedCode)
+    try {
+      // Ya tiene sesión en esta pestaña
+      if (sessionStorage.getItem('df_invite')) {
         setPhase('ready')
-      })
+        return
+      }
+
+      const storedCode = localStorage.getItem('df_access_code')
+        || localStorage.getItem('df_stored_code') // compatibilidad con versión anterior
+
+      if (!storedCode) {
+        setPhase('code')
+        return
+      }
+
+      // Verificar expiración local
+      const storedExpiry = localStorage.getItem('df_access_expiry')
+        || localStorage.getItem('df_stored_expires')
+
+      if (storedExpiry && new Date(storedExpiry) <= new Date()) {
+        clearStoredSession()
+        setPhase('code')
+        return
+      }
+
+      // Código presente y no expirado → entrar directo sin red
+      const name = localStorage.getItem('df_access_name') || localStorage.getItem('df_stored_name') || ''
+      sessionStorage.setItem('df_invite',      storedCode)
+      sessionStorage.setItem('df_invite_code', storedCode)
+      sessionStorage.setItem('df_invite_name', name)
+      setPhase('ready')
+    } catch {
+      setPhase('code')
+    }
   }, [])
 
-  if (phase === 'init' || phase === 'checking') {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ color: 'var(--text2)', fontSize: 15 }}>Verificando acceso...</p>
-      </div>
-    )
-  }
+  if (phase === 'init') return null  // evita flash — se resuelve en el mismo tick
 
   if (phase === 'ready') return children
 

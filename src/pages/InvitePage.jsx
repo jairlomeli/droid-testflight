@@ -31,14 +31,16 @@ export function InvitePage() {
       if (result.ok) {
         // Sesión persistente: guardar en localStorage
         const code = result.shortCode || token
-        localStorage.setItem('df_stored_code', code)
-        localStorage.setItem('df_stored_name', result.name || '')
-        if (result.expiresAt) {
-          const expDate = result.expiresAt.toDate ? result.expiresAt.toDate() : new Date(result.expiresAt)
-          localStorage.setItem('df_stored_expires', expDate.toISOString())
-        } else {
-          localStorage.removeItem('df_stored_expires')
-        }
+        try {
+          localStorage.setItem('df_access_code', code)
+          localStorage.setItem('df_access_name', result.name || '')
+          if (result.expiresAt) {
+            const expDate = result.expiresAt.toDate ? result.expiresAt.toDate() : new Date(result.expiresAt)
+            localStorage.setItem('df_access_expiry', expDate.toISOString())
+          } else {
+            localStorage.removeItem('df_access_expiry')
+          }
+        } catch {}
 
         // Sesión de pestaña
         sessionStorage.setItem('df_invite', token)
