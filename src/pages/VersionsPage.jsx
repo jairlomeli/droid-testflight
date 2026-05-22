@@ -53,7 +53,7 @@ export function VersionsPage() {
 
   return (
     <div className="page">
-      <Nav title={label} backLabel="DroidFlight" backTo="/" />
+      <Nav title={label} backLabel="Droid-TestFlight" backTo="/" />
 
       <p className="section-label">Versiones</p>
 

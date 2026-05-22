@@ -31,7 +31,7 @@ export function LoginPage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 30, margin: '0 auto 16px',
           }}>🚀</div>
-          <h1 style={{ fontSize: 26, fontWeight: 600, letterSpacing: -0.5 }}>DroidFlight</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 600, letterSpacing: -0.5 }}>Droid-TestFlight</h1>
           <p style={{ color: 'var(--text2)', marginTop: 6, fontSize: 15 }}>Acceso administrador</p>
         </div>
 

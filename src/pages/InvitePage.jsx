@@ -70,7 +70,7 @@ export function InvitePage() {
         </div>
         <h2 style={{ fontSize: 22, fontWeight: 600, marginBottom: 10 }}>
           {status === 'validating' ? 'Validando acceso...' :
-           status === 'ok'         ? '¡Bienvenido a DroidFlight!' :
+           status === 'ok'         ? '¡Bienvenido a Droid-TestFlight!' :
            INVALID_TITLES[reason] || 'Link inválido'}
         </h2>
         <p style={{ color: 'var(--text2)', fontSize: 15, lineHeight: 1.6 }}>

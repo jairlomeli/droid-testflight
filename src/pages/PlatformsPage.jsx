@@ -25,7 +25,7 @@ export function PlatformsPage() {
 
   return (
     <div className="page">
-      <Nav title="DroidFlight" />
+      <Nav title="Droid-TestFlight" />
 
       <p className="section-label">Plataformas</p>
       <div className="list-group">
