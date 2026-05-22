@@ -2,21 +2,24 @@
 import { useNavigate } from 'react-router-dom'
 import { Nav, Chevron } from '../components/Nav'
 import { TabBar } from '../components/TabBar'
+import { IconDeviceMobileDown, IconDeviceTv } from '@tabler/icons-react'
 
 const PLATFORMS = [
   {
-    id:       'mobile',
-    label:    'Mobile',
-    sub:      'Android',
-    emoji:    '📱',
-    gradient: 'linear-gradient(135deg, #1a6ef5, #0A84FF)',
+    id:      'mobile',
+    label:   'Mobile',
+    sub:     'Android',
+    icon:    <IconDeviceMobileDown size={28} color="#ffffff" stroke={1.6} />,
+    bg:      '#3DDC84',
+    border:  'none',
   },
   {
-    id:       'androidtv',
-    label:    'Android TV',
-    sub:      'Android TV OS',
-    emoji:    '📺',
-    gradient: 'linear-gradient(135deg, #30a050, #30D158)',
+    id:      'androidtv',
+    label:   'Android TV',
+    sub:     'Android TV OS',
+    icon:    <IconDeviceTv size={28} color="#3DDC84" stroke={1.6} />,
+    bg:      '#1a1a2e',
+    border:  '1.5px solid #3DDC84',
   },
 ]
 
@@ -29,17 +32,19 @@ export function PlatformsPage() {
 
       <p className="section-label">Plataformas</p>
       <div className="list-group">
-        {PLATFORMS.map((p, i) => (
+        {PLATFORMS.map(p => (
           <div
             key={p.id}
             className="list-row"
             onClick={() => navigate(`/platform/${p.id}`)}
           >
-            <div
-              className="row-icon"
-              style={{ background: p.gradient, fontSize: 26 }}
-            >
-              {p.emoji}
+            <div style={{
+              width: 52, height: 52, borderRadius: 13, flexShrink: 0,
+              background: p.bg, border: p.border,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxSizing: 'border-box',
+            }}>
+              {p.icon}
             </div>
             <div className="row-body">
               <div className="row-name">{p.label}</div>
